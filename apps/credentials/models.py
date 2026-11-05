@@ -19,6 +19,7 @@ REQUIRED_CREDENTIAL_KEYS = {
     "threads": (("client_id", "app_id"), ("client_secret", "app_secret")),
     "pinterest": (("client_id", "app_id"), ("client_secret", "app_secret")),
     "tiktok": (("client_key",), ("client_secret",)),
+    "tiktok_business": (("client_id",), ("client_secret",), ("authorization_url",)),
     "youtube": (("client_id",), ("client_secret",)),
     "google_business": (("client_id",), ("client_secret",)),
     "linkedin_personal": (("client_id",), ("client_secret",)),
@@ -47,6 +48,7 @@ class PlatformCredential(models.Model):
         LINKEDIN_PERSONAL = "linkedin_personal", "LinkedIn (Personal Profile)"
         LINKEDIN_COMPANY = "linkedin_company", "LinkedIn (Company Page)"
         TIKTOK = "tiktok", "TikTok"
+        TIKTOK_BUSINESS = "tiktok_business", "TikTok (Business API)"
         YOUTUBE = "youtube", "YouTube"
         PINTEREST = "pinterest", "Pinterest"
         THREADS = "threads", "Threads"

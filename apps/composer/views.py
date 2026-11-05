@@ -356,6 +356,25 @@ def _sync_platform_posts(request, post, workspace, initial_status=None):
                     extra["video_cover_timestamp_ms"] = cover_ms_val
             pp.platform_extra = extra
 
+        if account.platform == "tiktok_business":
+            # Fresh confirmation on every save, never reuse a checkbox from a
+            # prior edit. Drafts remain savable before these checks are done.
+            extra = {}
+            for field in (
+                "rights_confirmed",
+                "client_approval_confirmed",
+                "is_ai_generated",
+                "disable_comment",
+                "disable_duet",
+                "disable_stitch",
+            ):
+                extra[field] = request.POST.get(f"ttb_{field}_{acc_id}") == "true"
+            for field in ("is_brand_organic", "is_branded_content"):
+                value = request.POST.get(f"ttb_{field}_{acc_id}")
+                if value in ("true", "false"):
+                    extra[field] = value == "true"
+            pp.platform_extra = extra
+
         pp.save()
 
 

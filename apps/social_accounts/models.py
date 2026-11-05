@@ -391,6 +391,7 @@ class SocialAccount(models.Model):
         "linkedin_personal": 3000,
         "linkedin_company": 3000,
         "tiktok": 2200,
+        "tiktok_business": 2200,
         "youtube": 5000,
         "pinterest": 500,
         "threads": 500,
@@ -439,6 +440,9 @@ class SocialAccount(models.Model):
             "advanced_fields": ["allow_comments", "show_similar_products", "alt_text", "cover_image"],
         },
         "tiktok": {
+            "supports_first_comment": False,
+        },
+        "tiktok_business": {
             "supports_first_comment": False,
         },
         "bluesky": {
@@ -554,6 +558,7 @@ class SocialAccount(models.Model):
             "linkedin_personal": "in",
             "linkedin_company": "in",
             "tiktok": "tk",
+            "tiktok_business": "tk",
             "youtube": "yt",
             "pinterest": "pi",
             "threads": "th",

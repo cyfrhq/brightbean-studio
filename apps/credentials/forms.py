@@ -12,6 +12,7 @@ _KEY_HINTS = {
     "threads": "client_id, client_secret (app_id / app_secret also accepted)",
     "pinterest": "client_id, client_secret (app_id / app_secret also accepted)",
     "tiktok": "client_key, client_secret  (note: client_key, NOT client_id)",
+    "tiktok_business": "client_id, client_secret, authorization_url (portal's TikTok account holder URL)",
     "youtube": "client_id, client_secret",
     "google_business": "client_id, client_secret (optional: account_id, location_id)",
     "linkedin_personal": "client_id, client_secret (optional: _oauth_mode = oidc | community_management)",

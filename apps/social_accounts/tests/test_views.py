@@ -404,6 +404,48 @@ class TestReconnectView:
 
 @pytest.mark.django_db
 class TestOAuthCallbackView:
+    @override_settings(TIKTOK_BUSINESS_REDIRECT_URI="https://studio-connect.example.com/social2/callback/")
+    def test_business_callback_matches_public_uri_and_consumes_nonce(self, authenticated_client, workspace, user):
+        state = _sign_state(workspace.id, "tiktok_business", user.id, "business-nonce")
+        session = authenticated_client.session
+        session[OAUTH_SESSION_KEY] = {"nonce": "business-nonce"}
+        session.save()
+        provider = MagicMock()
+        provider.exchange_code.return_value = OAuthTokens(access_token="tok", refresh_token="r", expires_in=86400)
+        provider.get_profile.return_value = AccountProfile(platform_id="owner-business", name="Example")
+        url = reverse("social_accounts:oauth_callback", kwargs={"platform": "social2"})
+        with patch("apps.social_accounts.views._get_provider_for_platform", return_value=provider):
+            assert authenticated_client.get(url, {"auth_code": "one-use", "state": state}).status_code == 302
+            provider.exchange_code.assert_called_once_with(
+                "one-use", "https://studio-connect.example.com/social2/callback/"
+            )
+            authenticated_client.get(url, {"auth_code": "one-use", "state": state})
+            assert provider.exchange_code.call_count == 1
+        assert SocialAccount.objects.filter(workspace=workspace, platform="tiktok_business").count() == 1
+
+    @pytest.mark.parametrize("wrong", ["nonce", "platform", "user", "signature", "membership"])
+    def test_business_invalid_state_never_exchanges(self, authenticated_client, workspace, user, wrong):
+        from apps.members.models import WorkspaceMembership
+
+        nonce = "nonce"
+        state = _sign_state(
+            workspace.id,
+            "facebook" if wrong == "platform" else "tiktok_business",
+            "other-user" if wrong == "user" else user.id,
+            nonce,
+        )
+        if wrong == "signature":
+            state += "tamper"
+        session = authenticated_client.session
+        session[OAUTH_SESSION_KEY] = {"nonce": "different" if wrong == "nonce" else nonce}
+        session.save()
+        if wrong == "membership":
+            WorkspaceMembership.objects.filter(user=user, workspace=workspace).delete()
+        url = reverse("social_accounts:oauth_callback", kwargs={"platform": "social2"})
+        with patch("apps.social_accounts.views._get_provider_for_platform") as factory:
+            authenticated_client.get(url, {"auth_code": "one-use", "state": state})
+        factory.assert_not_called()
+
     def test_error_parameter_shows_message(self, authenticated_client):
         url = reverse("social_accounts:oauth_callback", kwargs={"platform": "facebook"})
         response = authenticated_client.get(url, {"error": "access_denied", "error_description": "User denied"})

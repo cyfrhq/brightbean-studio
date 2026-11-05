@@ -18,6 +18,7 @@ from __future__ import annotations
 
 PLATFORM_TO_URL_ALIAS: dict[str, str] = {
     "tiktok": "social1",
+    "tiktok_business": "social2",
 }
 
 URL_ALIAS_TO_PLATFORM: dict[str, str] = {v: k for k, v in PLATFORM_TO_URL_ALIAS.items()}

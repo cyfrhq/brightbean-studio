@@ -585,6 +585,11 @@ PLATFORM_CREDENTIALS_FROM_ENV = {
         "client_key": env("PLATFORM_TIKTOK_CLIENT_KEY", default=""),
         "client_secret": env("PLATFORM_TIKTOK_CLIENT_SECRET", default=""),
     },
+    "tiktok_business": {
+        "client_id": env("PLATFORM_TIKTOK_BUSINESS_CLIENT_ID", default=""),
+        "client_secret": env("PLATFORM_TIKTOK_BUSINESS_CLIENT_SECRET", default=""),
+        "authorization_url": env("PLATFORM_TIKTOK_BUSINESS_AUTHORIZATION_URL", default=""),
+    },
     # Google platforms - YouTube and Google Business Profile share the same OAuth client
     "youtube": _GOOGLE_CREDENTIALS,
     "google_business": _GOOGLE_CREDENTIALS,
@@ -604,6 +609,11 @@ PLATFORM_CREDENTIALS_FROM_ENV = {
 }
 
 # Publishing engine
+TIKTOK_BUSINESS_REDIRECT_URI = env("TIKTOK_BUSINESS_REDIRECT_URI", default="")
+TIKTOK_BUSINESS_MEDIA_ORIGIN = env("TIKTOK_BUSINESS_MEDIA_ORIGIN", default="")
+TIKTOK_BUSINESS_MEDIA_KEY_FILE = env("TIKTOK_BUSINESS_MEDIA_KEY_FILE", default="")
+# Enable only after app/scope approval and media URL ownership verification.
+TIKTOK_BUSINESS_PUBLISH_ENABLED = env.bool("TIKTOK_BUSINESS_PUBLISH_ENABLED", default=False)
 # How long after a post goes live the first comment is attempted, and how many
 # times a failed attempt is retried. Both were previously read via getattr()
 # from settings that did not exist, so neither could be tuned or overridden.

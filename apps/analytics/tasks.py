@@ -116,6 +116,7 @@ def _analytics_failure_backoff(failure_count: int) -> timedelta:
 
 # Per-platform backfill window (days) on initial connect.
 BACKFILL_DAYS_PER_PLATFORM: dict[str, int] = {
+    "tiktok_business": 0,
     "facebook": 90,
     "instagram": 90,
     "instagram_login": 90,

@@ -105,6 +105,8 @@ def _resolve_publish_credentials(account):
             )
     elif platform == "facebook":
         credentials["page_id"] = account.account_platform_id
+    elif platform == "tiktok_business":
+        credentials["business_id"] = account.account_platform_id
     elif platform in ("instagram", "instagram_login"):
         credentials["ig_user_id"] = account.account_platform_id
         if platform == "instagram":
@@ -798,6 +800,10 @@ class PublishEngine:
 
                 # Collect the public/presigned URL for this asset
                 url = asset.file.url
+                if platform == "tiktok_business":
+                    from apps.social_accounts.business_media import public_media_url
+
+                    url = public_media_url(asset)
                 if url.startswith("/"):
                     # Local storage: make absolute using APP_URL
                     url = f"{app_url}{url}"

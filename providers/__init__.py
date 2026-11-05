@@ -22,6 +22,7 @@ from .mastodon import MastodonProvider
 from .pinterest import PinterestProvider
 from .threads import ThreadsProvider
 from .tiktok import TikTokProvider
+from .tiktok_business import TikTokBusinessProvider
 from .types import PostType
 from .youtube import YouTubeProvider
 
@@ -35,6 +36,7 @@ PROVIDER_REGISTRY: dict[str, type[SocialProvider]] = {
     "linkedin_personal": LinkedInPersonalProvider,
     "linkedin_company": LinkedInCompanyProvider,
     "tiktok": TikTokProvider,
+    "tiktok_business": TikTokBusinessProvider,
     "youtube": YouTubeProvider,
     "pinterest": PinterestProvider,
     "threads": ThreadsProvider,

@@ -90,6 +90,11 @@ def _build_redirect_uri(request, platform):
     """
     from django.urls import reverse
 
+    if platform == "tiktok_business":
+        from providers.tiktok_business import validate_callback
+
+        return validate_callback(getattr(settings, "TIKTOK_BUSINESS_REDIRECT_URI", ""))
+
     url_slug = to_url_slug(platform)
     return request.build_absolute_uri(reverse("social_accounts:oauth_callback", kwargs={"platform": url_slug}))
 
@@ -281,7 +286,7 @@ def oauth_callback(request, platform):
     """
     platform = from_url_slug(platform)
     error = request.GET.get("error")
-    if error:
+    if error and platform != "tiktok_business":
         error_desc = request.GET.get("error_description", error)
         messages.error(request, f"OAuth error: {error_desc}")
         session_data = request.session.pop(OAUTH_SESSION_KEY, {})
@@ -290,10 +295,10 @@ def oauth_callback(request, platform):
             return redirect("calendar:calendar", workspace_id=workspace_id)
         return redirect("dashboard")
 
-    code = request.GET.get("code")
+    code = request.GET.get("auth_code") if platform == "tiktok_business" else request.GET.get("code")
     state_str = request.GET.get("state")
 
-    if not code or not state_str:
+    if (not code and not (error and platform == "tiktok_business")) or not state_str:
         messages.error(request, "Missing authorization code or state parameter.")
         return redirect("dashboard")
 
@@ -331,6 +336,10 @@ def oauth_callback(request, platform):
     if not perms.get("manage_social_accounts", False):
         raise PermissionDenied("You no longer have permission to manage social accounts.")
 
+    if error and platform == "tiktok_business":
+        messages.error(request, "TikTok account authorization was not completed.")
+        return redirect("calendar:calendar", workspace_id=workspace_id)
+
     try:
         # For Mastodon, we need instance-specific credentials from session + registration
         extra_creds: dict = {}
@@ -338,7 +347,11 @@ def oauth_callback(request, platform):
             extra_creds = _resolve_mastodon_extra_creds(session_data)
 
         provider = _get_provider_for_platform(platform, request.org.id, **extra_creds)
-        redirect_uri = redirect_uri_from_request(request)
+        redirect_uri = (
+            _build_redirect_uri(request, platform)
+            if platform == "tiktok_business"
+            else redirect_uri_from_request(request)
+        )
         tokens = provider.exchange_code(code, redirect_uri, **pkce_kwargs(session_data.get("code_verifier")))
 
         # Facebook/Instagram/LinkedIn Company: connect Pages, not personal profiles

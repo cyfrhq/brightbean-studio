@@ -1,0 +1,38 @@
+name: cyfr-studio-connect
+services:
+  gateway:
+    image: cyfr/brightbean-studio:1d11c52007a3-security1
+    entrypoint: ["gunicorn"]
+    command: ["studio_gateway.server:application", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "--timeout", "60", "--worker-tmp-dir", "/tmp", "--error-logfile", "-"]
+    # No access log: callback query strings and media bearer URLs are private.
+    working_dir: /gateway
+    environment:
+      PYTHONPATH: /gateway
+      PYTHONDONTWRITEBYTECODE: "1"
+      STUDIO_MEDIA_ENABLED: "false"
+      STUDIO_MEDIA_ROOT: /media
+      STUDIO_MEDIA_KEY_FILE: /run/secrets/business-media.key
+      STUDIO_VERIFICATION_FILE: /run/config/verification.json
+      STUDIO_SOURCE_ARCHIVE: /source/brightbean-studio-source.tar.gz
+    ports: ["127.0.0.1:18082:8080"]
+    volumes:
+      - ../../studio_gateway:/gateway/studio_gateway:ro
+      - /srv/cyfr/secrets/brightbean-studio/business-media.key:/run/secrets/business-media.key:ro
+      - ./verification.json:/run/config/verification.json:ro
+      - studio_media:/media:ro
+      - /srv/cyfr/stacks/brightbean-studio/public-source:/source:ro
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 192m
+    cpus: "0.5"
+    restart: unless-stopped
+    networks: [gateway]
+networks:
+  gateway:
+volumes:
+  studio_media:
+    external: true
+    name: cyfr-brightbean_media

@@ -285,7 +285,10 @@ def connection_page(request, token):
             "workspace": workspace,
             "error": session_error,
             "org": org,
-            "platform_choices": PlatformCredential.Platform.choices,
+            # Business pilot connects from authenticated staff workspaces.
+            "platform_choices": [
+                (value, label) for value, label in PlatformCredential.Platform.choices if value != "tiktok_business"
+            ],
             "configured_platforms": configured_platforms,
             "connected_accounts": connected_accounts,
         },
@@ -309,6 +312,8 @@ def connection_oauth_start(request, token):
 
     platform = request.POST.get("platform", "").strip()
     if platform not in dict(PlatformCredential.Platform.choices):
+        return redirect("onboarding:connection_page", token=token)
+    if platform == "tiktok_business":
         return redirect("onboarding:connection_page", token=token)
 
     org = link.workspace.organization
