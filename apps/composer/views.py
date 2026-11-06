@@ -356,6 +356,11 @@ def _sync_platform_posts(request, post, workspace, initial_status=None):
                     extra["video_cover_timestamp_ms"] = cover_ms_val
             pp.platform_extra = extra
 
+        if account.platform in {"facebook", "instagram"}:
+            extra = dict(pp.platform_extra or {})
+            extra["is_ai_generated"] = request.POST.get(f"meta_is_ai_generated_{acc_id}") == "true"
+            pp.platform_extra = extra
+
         if account.platform == "tiktok_business":
             # Fresh confirmation on every save, never reuse a checkbox from a
             # prior edit. Drafts remain savable before these checks are done.

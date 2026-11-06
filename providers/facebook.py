@@ -439,6 +439,8 @@ class FacebookProvider(SocialProvider):
 
     def _publish_video(self, access_token: str, page_id: str, content: PublishContent) -> PublishResult:
         payload: dict = {"file_url": content.media_urls[0]}
+        if content.extra.get("is_ai_generated") is True:
+            payload["is_ai_generated"] = True
         if content.text:
             payload["description"] = content.text
         resp = self._request(

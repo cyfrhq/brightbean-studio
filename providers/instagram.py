@@ -341,6 +341,8 @@ class InstagramProvider(SocialProvider):
     def _publish_single(self, access_token: str, ig_user_id: str, content: PublishContent) -> PublishResult:
         """Publish a single image, reel, or story."""
         payload: dict = {}
+        if content.extra.get("is_ai_generated") is True:
+            payload["is_ai_generated"] = True
 
         if content.text:
             payload["caption"] = content.text

@@ -842,6 +842,12 @@
                     </div>
                 </template>
 
+                <template x-for="accId in selectedAccounts" :key="'meta-ai-settings-' + accId">
+                    <section x-show="['facebook', 'instagram'].includes(charLimits[accId]?.platform)" class="border border-stone-200 rounded-xl p-4">
+                        <label class="block text-sm"><input type="checkbox" :name="'meta_is_ai_generated_' + accId" value="true" :checked="!!platformExtras[accId]?.is_ai_generated"> Label as AI-generated content on <span x-text="charLimits[accId]?.platform === 'facebook' ? 'Facebook' : 'Instagram'"></span></label>
+                    </section>
+                </template>
+
                 <template x-for="accId in selectedAccounts" :key="'ttb-settings-' + accId">
                     <section x-show="charLimits[accId]?.platform === 'tiktok_business'" class="border border-stone-200 rounded-xl p-4 space-y-3">
                         <h3 class="font-semibold text-sm">TikTok business video</h3>
