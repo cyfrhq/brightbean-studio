@@ -800,7 +800,11 @@ class PublishEngine:
 
                 # Collect the public/presigned URL for this asset
                 url = asset.file.url
-                if platform == "tiktok_business":
+                if platform == "tiktok_business" or (
+                    platform in {"facebook", "instagram"}
+                    and asset.media_type == "video"
+                    and getattr(settings, "STUDIO_META_VIDEO_DELIVERY_ENABLED", False)
+                ):
                     from apps.social_accounts.business_media import public_media_url
 
                     url = public_media_url(asset)

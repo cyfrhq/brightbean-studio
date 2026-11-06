@@ -11,7 +11,7 @@ import threading
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, TestCase, TransactionTestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from apps.composer.models import PlatformPost, Post
@@ -63,6 +63,41 @@ def _dispatch_mocks(platform, *, needs_local_media, attachments=(), supported=(P
 
 class UrlOnlyProvidersSkipDownloadTest(SimpleTestCase):
     """Instagram, Threads, Facebook et al. never read ``media_files``."""
+
+    @override_settings(STUDIO_META_VIDEO_DELIVERY_ENABLED=True)
+    @patch("apps.social_accounts.business_media.public_media_url", return_value="https://gateway.example/media/opaque/video.mp4")
+    @patch("apps.publisher.engine.download_to_path")
+    @patch("apps.publisher.engine.get_provider")
+    @patch("apps.publisher.engine._resolve_publish_credentials", return_value={})
+    def test_private_meta_videos_use_temporary_gateway(self, _creds, get_provider, download, gateway):
+        for platform in ("facebook", "instagram"):
+            with self.subTest(platform=platform):
+                attachment = _attachment("v1", media_type="video", filename="video.mp4", duration=30)
+                engine, platform_post, provider = _dispatch_mocks(
+                    platform, needs_local_media=False, attachments=[attachment]
+                )
+                get_provider.return_value = provider
+                engine._dispatch_to_provider(platform_post)
+                gateway.assert_called_with(attachment.media_asset)
+                _token, content = provider.publish_post.call_args.args
+                assert content.media_urls == ["https://gateway.example/media/opaque/video.mp4"]
+                assert content.video_duration_sec == 30
+        assert gateway.call_count == 2
+        download.assert_not_called()
+
+    @override_settings(STUDIO_META_VIDEO_DELIVERY_ENABLED=True)
+    @patch("apps.social_accounts.business_media.public_media_url")
+    @patch("apps.publisher.engine.get_provider")
+    @patch("apps.publisher.engine._resolve_publish_credentials", return_value={})
+    def test_meta_image_delivery_is_unchanged(self, _creds, get_provider, gateway):
+        engine, platform_post, provider = _dispatch_mocks(
+            "instagram", needs_local_media=False, attachments=[_attachment("a1")]
+        )
+        get_provider.return_value = provider
+        engine._dispatch_to_provider(platform_post)
+        gateway.assert_not_called()
+        _token, content = provider.publish_post.call_args.args
+        assert content.media_urls == ["https://cdn.example/a.jpg"]
 
     @patch("apps.publisher.engine.download_to_path")
     @patch("apps.publisher.engine.get_provider")
