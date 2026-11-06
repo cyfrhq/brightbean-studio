@@ -36,8 +36,13 @@ def callback_location(query):
     if "error" in values:
         params = {"error": "authorization_denied", "state": state}
     else:
-        # Business API documents auth_code, unlike the creator callback's code.
-        code = values.get("auth_code", [""])[0]
+        # The current account-holder consent returns `code`; Business token
+        # exchange calls that value `auth_code`. Normalize at this boundary,
+        # preserving support for the documented auth_code callback spelling.
+        # Reject both spellings together rather than choosing an ambiguous one.
+        if "code" in values and "auth_code" in values:
+            raise ValueError("Ambiguous authorization code")
+        code = values.get("auth_code", values.get("code", [""]))[0]
         if not code or len(code) > 2048:
             raise ValueError("Missing authorization code")
         params = {"auth_code": code, "state": state}

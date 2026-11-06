@@ -24,15 +24,18 @@ def request(path, query="", method="GET", host=HOST, **kwargs):
     return captured["status"], captured["headers"], body
 
 
-def test_callback_fixed_destination_no_arbitrary_return_url():
-    location = callback_location("auth_code=synthetic&state=signed")
+@pytest.mark.parametrize("name", ["auth_code", "code"])
+def test_callback_fixed_destination_no_arbitrary_return_url(name):
+    location = callback_location(f"{name}=synthetic&state=signed&scopes=user.info.basic%2Cvideo.publish")
     assert location.startswith(PRIVATE_CALLBACK + "?")
     assert parse_qs(urlsplit(location).query) == {"auth_code": ["synthetic"], "state": ["signed"]}
     for query in (
         "auth_code=x",
         "auth_code=x&state=s&next=https://evil.test",
         "auth_code=x&state=s&state=other",
-        "code=creator-code&state=s",
+        "code=x&auth_code=x&state=s",
+        "code=x&code=other&state=s",
+        "code=&state=s",
         "auth_code=x&state=" + "x" * 4097,
     ):
         with pytest.raises(ValueError):
@@ -45,7 +48,10 @@ def test_callback_and_security_headers():
     assert headers["Cache-Control"] == "no-store"
     assert headers["Referrer-Policy"] == "no-referrer"
     assert request("/social2/callback/")[0] == "200 OK"
-    assert request("/social2/callback/", "code=bad&state=s")[0] == "400 Bad Request"
+    status, headers, _ = request("/social2/callback/", "code=synthetic&scopes=user.info.basic%2Cvideo.publish&state=s")
+    assert status == "303 See Other"
+    assert parse_qs(urlsplit(headers["Location"]).query) == {"auth_code": ["synthetic"], "state": ["s"]}
+    assert request("/social2/callback/", "code=one&auth_code=other&state=s")[0] == "400 Bad Request"
     assert request("/", host="attacker.example")[0].startswith("421")
     assert request("/", method="POST")[0].startswith("405")
     assert request("/media_library/private.mp4")[0].startswith("404")
