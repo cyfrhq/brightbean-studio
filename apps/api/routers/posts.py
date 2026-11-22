@@ -37,6 +37,7 @@ from apps.api.schemas import (
     CreatePostRequest,
     PostResponse,
     ScheduleRequest,
+    TikTokBusinessOptions,
     UpdatePostRequest,
 )
 from apps.composer.models import Post
@@ -102,6 +103,25 @@ def _post_to_response(request: HttpRequest, post: Post) -> PostResponse:
     return PostResponse.from_post(post, include_internal_notes=_can_view_internal_notes(request))
 
 
+def _tiktok_business_extra(social_account: SocialAccount, options: TikTokBusinessOptions | None) -> dict | None:
+    """Stored ``platform_extra`` for ``options``; 422 if sent to another platform."""
+    if options is None:
+        return None
+    if social_account.platform != "tiktok_business":
+        raise HttpError(
+            422, f"tiktok_business options apply only to tiktok_business accounts, not {social_account.platform}."
+        )
+    return options.to_platform_extra()
+
+
+def _missing_options_message(missing: list[str]) -> str:
+    return (
+        "TikTok Business posts need explicit per-post confirmation before scheduling. "
+        "Set media_rights_confirmed and owner_approved to true and answer promotional_content "
+        f"and paid_partnership. Missing: {', '.join(missing)}."
+    )
+
+
 def _get_workspace_post(request: HttpRequest, post_id: uuid.UUID) -> Post:
     """Fetch a Post that belongs to the key's workspace **and** whose every
     ``PlatformPost`` child targets a ``SocialAccount`` in the key's
@@ -163,6 +183,11 @@ def create(request, payload: CreatePostRequest):
     social_account = _resolve_account(request, payload.social_account_id)
     if payload.action == "schedule" and payload.scheduled_at is None:
         raise HttpError(422, "scheduled_at is required when action='schedule'.")
+    platform_extra = _tiktok_business_extra(social_account, payload.tiktok_business)
+    if payload.action == "schedule" and social_account.platform == "tiktok_business":
+        missing = TikTokBusinessOptions.missing_fields(platform_extra)
+        if missing:
+            raise HttpError(422, _missing_options_message(missing))
 
     # Build the platform_overrides dict and validate that each override's
     # social_account_id matches one of the post's target accounts. In the
@@ -256,6 +281,7 @@ def create(request, payload: CreatePostRequest):
             author=request.user if not request.user.is_anonymous else None,
             status="scheduled" if payload.action == "schedule" else "draft",
             platform_overrides=platform_overrides,
+            platform_extra=platform_extra,
         )
         body = _post_to_response(request, post)
         status_code = 201
@@ -353,7 +379,23 @@ def update(request, post_id: uuid.UUID, payload: UpdatePostRequest):
         if reason:
             raise HttpError(422, reason)
 
+    tiktok_children: list = []
+    tiktok_extra: dict | None = None
+    if payload.tiktok_business is not None:
+        tiktok_children = [pp for pp in post.platform_posts.all() if pp.social_account.platform == "tiktok_business"]
+        if not tiktok_children:
+            raise HttpError(422, "tiktok_business options apply only to posts for a tiktok_business account.")
+        tiktok_extra = payload.tiktok_business.to_platform_extra()
+        if any(pp.status == "scheduled" for pp in tiktok_children):
+            missing = TikTokBusinessOptions.missing_fields(tiktok_extra)
+            if missing:
+                raise HttpError(422, _missing_options_message(missing))
+
     with transaction.atomic():
+        for pp in tiktok_children:
+            # Fresh confirmation: replace, never merge with earlier answers.
+            pp.platform_extra = dict(tiktok_extra or {})
+            pp.save(update_fields=["platform_extra", "updated_at"])
         update_fields: list[str] = []
         if payload.caption is not None:
             post.caption = payload.caption
@@ -428,6 +470,11 @@ def schedule(request, post_id: uuid.UUID, payload: ScheduleRequest):
     # Quota check is per-account, so we evaluate it once per child before
     # we touch any state. Doing the checks first means an over-quota
     # account fails the whole route with 429 — no partial commit.
+    for pp in drafts:
+        if pp.social_account.platform == "tiktok_business":
+            missing = TikTokBusinessOptions.missing_fields(pp.platform_extra)
+            if missing:
+                raise HttpError(422, _missing_options_message(missing))
     for pp in drafts:
         check_platform_quota(pp.social_account)
 

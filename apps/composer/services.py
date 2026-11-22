@@ -85,6 +85,7 @@ def create_post(
     author=None,
     status: str = "draft",
     platform_overrides: dict[Any, dict[str, str | None]] | None = None,
+    platform_extra: dict | None = None,
 ):
     """Create a ``Post`` + one ``PlatformPost`` for ``social_account``.
 
@@ -179,6 +180,7 @@ def create_post(
         reason = publish_blocker(
             social_account,
             media_types=usable_media_types(asset_map.values()),
+            platform_extra=platform_extra,
         )
         if reason:
             raise ValueError(reason)
@@ -211,6 +213,7 @@ def create_post(
             platform_specific_title=override.get("title"),
             platform_specific_caption=override.get("caption"),
             platform_specific_first_comment=override.get("first_comment"),
+            platform_extra=dict(platform_extra or {}),
         )
         for position, (_mid, u) in enumerate(resolved):
             # ``u`` is validated non-None and present in ``asset_map`` above
@@ -443,6 +446,30 @@ def media_blocker(social_account, *, media_types) -> str:
     return ""
 
 
+# TikTok Business posts need the operator's explicit, per-post confirmation of
+# media rights and owner/client approval, plus an answer to both commercial
+# disclosures. Stored keys on ``PlatformPost.platform_extra``.
+TIKTOK_BUSINESS_REQUIRED_CONSENTS = ("rights_confirmed", "client_approval_confirmed")
+TIKTOK_BUSINESS_REQUIRED_DISCLOSURES = ("is_brand_organic", "is_branded_content")
+
+
+def tiktok_business_missing(platform_extra: dict | None) -> list[str]:
+    """Stored ``platform_extra`` keys a TikTok Business post still lacks."""
+    extra = platform_extra or {}
+    missing = [key for key in TIKTOK_BUSINESS_REQUIRED_CONSENTS if extra.get(key) is not True]
+    missing += [key for key in TIKTOK_BUSINESS_REQUIRED_DISCLOSURES if not isinstance(extra.get(key), bool)]
+    return missing
+
+
+def tiktok_business_blocker(platform_extra: dict | None) -> str:
+    missing = tiktok_business_missing(platform_extra)
+    if any(key in TIKTOK_BUSINESS_REQUIRED_CONSENTS for key in missing):
+        return "Confirm media rights and client approval before posting."
+    if missing:
+        return "Choose the promotional-content disclosures for this video."
+    return ""
+
+
 def publish_blocker(social_account, *, media_types, platform_extra: dict | None = None) -> str:
     """Why a post can't publish to ``social_account`` as it stands, or "".
 
@@ -458,6 +485,8 @@ def publish_blocker(social_account, *, media_types, platform_extra: dict | None 
         return reason
     if social_account.platform == "pinterest" and not (platform_extra or {}).get("board_id"):
         return "Pinterest needs a board for every pin. Choose one for this post in the composer before scheduling it."
+    if social_account.platform == "tiktok_business":
+        return tiktok_business_blocker(platform_extra)
     return ""
 
 

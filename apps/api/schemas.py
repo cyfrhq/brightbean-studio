@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from ninja import Field, Schema
 from pydantic import field_serializer
@@ -91,6 +91,15 @@ class AccountSummary(Schema):
             "rejected with 422."
         ),
     )
+    required_options: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Fields of the platform's options object that must be set before the post can be "
+            "scheduled, as ``<object>.<field>``. TikTok Business lists the ``tiktok_business`` "
+            "consents (must be true) and disclosures (must be true or false). Scheduling without "
+            "them is rejected with 422. Empty when the platform needs none."
+        ),
+    )
 
     @classmethod
     def from_social_account(cls, sa) -> AccountSummary:
@@ -106,6 +115,11 @@ class AccountSummary(Schema):
             supports_first_comment=sa.supports_first_comment(),
             requires_video=is_video_only(sa.platform),
             requires_media=requires_media(sa.platform),
+            required_options=(
+                [f"tiktok_business.{name}" for name in TikTokBusinessOptions.REQUIRED_FIELDS]
+                if sa.platform == "tiktok_business"
+                else []
+            ),
         )
 
 
@@ -167,6 +181,70 @@ class PlatformOverride(Schema):
     first_comment: str | None = Field(None, max_length=10_000)
 
 
+class TikTokBusinessOptions(Schema):
+    """Per-post confirmations and settings for a ``tiktok_business`` account.
+
+    Mirrors the composer's "TikTok business video" panel. Confirmations are
+    per post and are never carried over: sending this object replaces any
+    options saved earlier. Drafts may omit it; scheduling requires
+    ``media_rights_confirmed`` and ``owner_approved`` to be true and both
+    disclosures to be answered.
+    """
+
+    # Stored key in PlatformPost.platform_extra for each API field.
+    STORED_KEYS: ClassVar[dict[str, str]] = {
+        "media_rights_confirmed": "rights_confirmed",
+        "owner_approved": "client_approval_confirmed",
+        "promotional_content": "is_brand_organic",
+        "paid_partnership": "is_branded_content",
+        "ai_generated_label": "is_ai_generated",
+        "disable_comments": "disable_comment",
+        "disable_duet": "disable_duet",
+        "disable_stitch": "disable_stitch",
+    }
+    REQUIRED_FIELDS: ClassVar[tuple[str, ...]] = (
+        "media_rights_confirmed",
+        "owner_approved",
+        "promotional_content",
+        "paid_partnership",
+    )
+
+    media_rights_confirmed: bool = Field(
+        False, description="We have permission to use this video, music and other material."
+    )
+    owner_approved: bool = Field(
+        False,
+        description="The account owner (or client) approved this video, caption and target account for public posting.",
+    )
+    promotional_content: bool | None = Field(
+        None, description="Promotes the account owner's own business (TikTok ``is_brand_organic``)."
+    )
+    paid_partnership: bool | None = Field(
+        None,
+        description="Promotes another brand for payment or another incentive (TikTok ``is_branded_content``).",
+    )
+    ai_generated_label: bool = Field(False, description="Label the video as AI-generated content.")
+    disable_comments: bool = False
+    disable_duet: bool = False
+    disable_stitch: bool = False
+
+    def to_platform_extra(self) -> dict:
+        extra: dict = {}
+        for field, key in self.STORED_KEYS.items():
+            value = getattr(self, field)
+            if value is not None:
+                extra[key] = value
+        return extra
+
+    @classmethod
+    def missing_fields(cls, platform_extra: dict | None) -> list[str]:
+        """API names (``tiktok_business.<field>``) still unset for publishing."""
+        from apps.composer.services import tiktok_business_missing
+
+        stored_to_api = {key: field for field, key in cls.STORED_KEYS.items()}
+        return [f"tiktok_business.{stored_to_api[key]}" for key in tiktok_business_missing(platform_extra)]
+
+
 class CreatePostRequest(Schema):
     """Create a draft or directly schedule a post against one account.
 
@@ -215,6 +293,13 @@ class CreatePostRequest(Schema):
             "omitting it) leaves the post's default in place for that platform."
         ),
     )
+    tiktok_business: TikTokBusinessOptions | None = Field(
+        None,
+        description=(
+            "Required to schedule to a ``tiktok_business`` account (see that account's "
+            "``required_options``); rejected with 422 for any other platform."
+        ),
+    )
     action: PostAction = Field(
         "draft",
         description=(
@@ -251,6 +336,14 @@ class UpdatePostRequest(Schema):
         description="Private team-only note. Omit (or send null) to leave it unchanged.",
     )
     media_asset_ids: list[uuid.UUID] | None = None
+    tiktok_business: TikTokBusinessOptions | None = Field(
+        None,
+        description=(
+            "Replace the ``tiktok_business`` options of this post's TikTok Business child. "
+            "Omit to keep them. A scheduled post can't be changed to options that fail its "
+            "publishing requirements (422)."
+        ),
+    )
     scheduled_at: dt.datetime | None = Field(
         None,
         description="If the post is currently scheduled, this re-times it. Ignored for drafts.",
