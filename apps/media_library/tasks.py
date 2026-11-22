@@ -79,10 +79,14 @@ def _process_video(asset):
 
     try:
         metadata = extract_video_metadata(tmp_path)
-        asset.width = metadata.get("width", 0)
-        asset.height = metadata.get("height", 0)
-        if "duration_seconds" in metadata:
-            asset.duration = metadata["duration_seconds"]
+        if not metadata.get("width") or not metadata.get("height") or not metadata.get("duration_seconds"):
+            # A video whose size or length can't be read is not a processed
+            # video. Reporting it COMPLETED with 0x0 and 0 s let posts schedule
+            # and then fail at publish time on platforms that check them.
+            raise ValueError("Could not read the video's dimensions or duration.")
+        asset.width = metadata["width"]
+        asset.height = metadata["height"]
+        asset.duration = metadata["duration_seconds"]
 
         thumbnail = generate_video_thumbnail(tmp_path)
         if thumbnail:

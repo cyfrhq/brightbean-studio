@@ -31,6 +31,7 @@ from apps.common.validators import (
     safe_xml_fromstring,
 )
 from apps.media_library.models import MediaAsset
+from apps.media_library.tasks import process_media_asset
 from apps.members.decorators import require_permission
 from apps.members.models import WorkspaceMembership
 from apps.social_accounts.models import SocialAccount
@@ -2382,7 +2383,12 @@ def upload_media(request, workspace_id, post_id=None):
         mime_type=content_type,
         file_size=uploaded_file.size,
         source="upload",
+        processing_status=MediaAsset.ProcessingStatus.PENDING,
     )
+    # Same processing as the media library and API uploads: without it a video
+    # keeps the model's "completed" default with 0x0 and 0 s, which platforms
+    # with size/duration checks (TikTok Business) then refuse at publish time.
+    process_media_asset(str(asset.id))
 
     if post_id:
         post = get_object_or_404(Post, id=post_id, workspace=workspace)
@@ -2810,7 +2816,7 @@ def _create_idea_media_asset(workspace, user, uploaded_file):
     else:
         media_type = MediaAsset.MediaType.DOCUMENT
 
-    return MediaAsset.objects.create(
+    asset = MediaAsset.objects.create(
         organization=workspace.organization,
         workspace=workspace,
         uploaded_by=user,
@@ -2820,7 +2826,10 @@ def _create_idea_media_asset(workspace, user, uploaded_file):
         mime_type=content_type,
         file_size=uploaded_file.size,
         source="upload",
+        processing_status=MediaAsset.ProcessingStatus.PENDING,
     )
+    process_media_asset(str(asset.id))
+    return asset
 
 
 @login_required
