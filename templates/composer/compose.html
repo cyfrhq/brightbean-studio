@@ -852,12 +852,12 @@
                     <section x-show="charLimits[accId]?.platform === 'tiktok_business'" class="border border-stone-200 rounded-xl p-4 space-y-3">
                         <h3 class="font-semibold text-sm">TikTok business video</h3>
                         <p class="text-xs text-stone-500">Publish one approved video publicly to the selected account. Production access must be approved first.</p>
-                        <label class="block text-sm">Promotes the account owner's business (Promotional content)
+                        <label class="block text-sm">Promotes the account owner's business (Promotional content) <span class="text-red-600" title="Required" aria-hidden="true">*</span><span class="sr-only"> (required)</span>
                             <select :name="'ttb_is_brand_organic_' + accId" class="block w-full border rounded p-2 text-sm">
                                 <option value="">Choose a disclosure</option><option value="true">Yes</option><option value="false">No</option>
                             </select>
                         </label>
-                        <label class="block text-sm">Promotes another brand for payment or another incentive (Paid partnership)
+                        <label class="block text-sm">Promotes another brand for payment or another incentive (Paid partnership) <span class="text-red-600" title="Required" aria-hidden="true">*</span><span class="sr-only"> (required)</span>
                             <select :name="'ttb_is_branded_content_' + accId" class="block w-full border rounded p-2 text-sm">
                                 <option value="">Choose a disclosure</option><option value="true">Yes</option><option value="false">No</option>
                             </select>
@@ -866,9 +866,9 @@
                         <label class="block text-sm"><input type="checkbox" :name="'ttb_disable_comment_' + accId" value="true"> Disable comments</label>
                         <label class="block text-sm"><input type="checkbox" :name="'ttb_disable_duet_' + accId" value="true"> Disable Duet</label>
                         <label class="block text-sm"><input type="checkbox" :name="'ttb_disable_stitch_' + accId" value="true"> Disable Stitch</label>
-                        <p class="text-xs text-stone-500">Account restrictions also apply. Confirm these checks again after every edit.</p>
-                        <label class="block text-sm"><input type="checkbox" :name="'ttb_rights_confirmed_' + accId" value="true"> We have permission to use this video, music and other material.</label>
-                        <label class="block text-sm"><input type="checkbox" :name="'ttb_client_approval_confirmed_' + accId" value="true"> The account owner (or client) approved this video, caption and target account for public posting.</label>
+                        <p class="text-xs text-stone-500">Account restrictions also apply. Confirm these checks again after every edit. <span class="text-red-600">*</span> marks required fields.</p>
+                        <label class="block text-sm"><input type="checkbox" :name="'ttb_rights_confirmed_' + accId" value="true"> We have permission to use this video, music and other material. <span class="text-red-600" title="Required" aria-hidden="true">*</span><span class="sr-only"> (required)</span></label>
+                        <label class="block text-sm"><input type="checkbox" :name="'ttb_client_approval_confirmed_' + accId" value="true"> The account owner (or client) approved this video, caption and target account for public posting. <span class="text-red-600" title="Required" aria-hidden="true">*</span><span class="sr-only"> (required)</span></label>
                         <p class="text-xs text-stone-500"><a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank" rel="noopener" class="underline">Branded Content Policy</a> · <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noopener" class="underline">Music Usage Confirmation</a></p>
                     </section>
                 </template>
