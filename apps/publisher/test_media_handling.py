@@ -9,7 +9,7 @@ and an out-of-memory kill, so both behaviours are pinned here.
 import os
 import threading
 from datetime import timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
@@ -65,7 +65,10 @@ class UrlOnlyProvidersSkipDownloadTest(SimpleTestCase):
     """Instagram, Threads, Facebook et al. never read ``media_files``."""
 
     @override_settings(STUDIO_META_VIDEO_DELIVERY_ENABLED=True)
-    @patch("apps.social_accounts.business_media.public_media_url", return_value="https://gateway.example/media/opaque/video.mp4")
+    @patch(
+        "apps.social_accounts.business_media.public_media_url",
+        return_value="https://gateway.example/media/opaque/video.mp4",
+    )
     @patch("apps.publisher.engine.download_to_path")
     @patch("apps.publisher.engine.get_provider")
     @patch("apps.publisher.engine._resolve_publish_credentials", return_value={})
@@ -78,7 +81,7 @@ class UrlOnlyProvidersSkipDownloadTest(SimpleTestCase):
                 )
                 get_provider.return_value = provider
                 engine._dispatch_to_provider(platform_post)
-                gateway.assert_called_with(attachment.media_asset)
+                gateway.assert_called_with(attachment.media_asset, label=ANY)
                 _token, content = provider.publish_post.call_args.args
                 assert content.media_urls == ["https://gateway.example/media/opaque/video.mp4"]
                 assert content.video_duration_sec == 30

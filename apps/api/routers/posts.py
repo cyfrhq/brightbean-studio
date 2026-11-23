@@ -43,7 +43,9 @@ from apps.api.schemas import (
 from apps.composer.models import Post
 from apps.composer.services import (
     create_post,
+    effective_platform_extra,
     media_change_blocker,
+    retry_failed_platform_post,
     sync_post_scheduled_at,
     transition_platform_post,
     usable_media_types,
@@ -116,9 +118,10 @@ def _tiktok_business_extra(social_account: SocialAccount, options: TikTokBusines
 
 def _missing_options_message(missing: list[str]) -> str:
     return (
-        "TikTok Business posts need explicit per-post confirmation before scheduling. "
-        "Set media_rights_confirmed and owner_approved to true and answer promotional_content "
-        f"and paid_partnership. Missing: {', '.join(missing)}."
+        "TikTok Business posts need these answered before scheduling. Send them in tiktok_business "
+        "(media_rights_confirmed and owner_approved true; promotional_content and paid_partnership "
+        "true or false), or have a workspace owner set the account's TikTok posting defaults. "
+        f"Missing: {', '.join(missing)}."
     )
 
 
@@ -185,7 +188,7 @@ def create(request, payload: CreatePostRequest):
         raise HttpError(422, "scheduled_at is required when action='schedule'.")
     platform_extra = _tiktok_business_extra(social_account, payload.tiktok_business)
     if payload.action == "schedule" and social_account.platform == "tiktok_business":
-        missing = TikTokBusinessOptions.missing_fields(platform_extra)
+        missing = TikTokBusinessOptions.missing_fields(effective_platform_extra(social_account, platform_extra))
         if missing:
             raise HttpError(422, _missing_options_message(missing))
 
@@ -386,8 +389,10 @@ def update(request, post_id: uuid.UUID, payload: UpdatePostRequest):
         if not tiktok_children:
             raise HttpError(422, "tiktok_business options apply only to posts for a tiktok_business account.")
         tiktok_extra = payload.tiktok_business.to_platform_extra()
-        if any(pp.status == "scheduled" for pp in tiktok_children):
-            missing = TikTokBusinessOptions.missing_fields(tiktok_extra)
+        for pp in tiktok_children:
+            if pp.status != "scheduled":
+                continue
+            missing = TikTokBusinessOptions.missing_fields(effective_platform_extra(pp.social_account, tiktok_extra))
             if missing:
                 raise HttpError(422, _missing_options_message(missing))
 
@@ -472,7 +477,9 @@ def schedule(request, post_id: uuid.UUID, payload: ScheduleRequest):
     # account fails the whole route with 429 — no partial commit.
     for pp in drafts:
         if pp.social_account.platform == "tiktok_business":
-            missing = TikTokBusinessOptions.missing_fields(pp.platform_extra)
+            missing = TikTokBusinessOptions.missing_fields(
+                effective_platform_extra(pp.social_account, pp.platform_extra)
+            )
             if missing:
                 raise HttpError(422, _missing_options_message(missing))
     for pp in drafts:
@@ -495,6 +502,38 @@ def schedule(request, post_id: uuid.UUID, payload: ScheduleRequest):
 
     post.refresh_from_db()
     log_audit_entry(request, action="post.schedule", target_id=post.id, status_code=200)
+    return _post_to_response(request, post)
+
+
+@router.post("/{post_id}/retry", response=PostResponse, summary="Retry a failed post now")
+def retry(request, post_id: uuid.UUID):
+    """Send every failed child of the post back to the publisher now.
+
+    Runs the scheduling checks first (with the account's posting defaults), so
+    a retry that can only fail again is refused with the reason (422) and
+    nothing changes. Fix the post with PATCH (for example ``tiktok_business``
+    options) and call this again.
+    """
+    enforce_http_rate_limits(request, is_write=True)
+    _require_perm(request, "create_posts")
+    _require_perm(request, "publish_directly")
+    post = _get_workspace_post(request, post_id)
+
+    failed = list(post.platform_posts.filter(status="failed").select_related("social_account", "post"))
+    if not failed:
+        raise HttpError(409, "No failed platform posts to retry.")
+
+    from django.db import transaction
+
+    with transaction.atomic():
+        for pp in failed:
+            try:
+                retry_failed_platform_post(pp)
+            except ValueError as exc:
+                raise HttpError(422, str(exc)) from exc
+
+    post.refresh_from_db()
+    log_audit_entry(request, action="post.retry", target_id=post.id, status_code=200)
     return _post_to_response(request, post)
 
 

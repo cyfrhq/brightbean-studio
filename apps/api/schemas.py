@@ -97,12 +97,22 @@ class AccountSummary(Schema):
             "Fields of the platform's options object that must be set before the post can be "
             "scheduled, as ``<object>.<field>``. TikTok Business lists the ``tiktok_business`` "
             "consents (must be true) and disclosures (must be true or false). Scheduling without "
-            "them is rejected with 422. Empty when the platform needs none."
+            "them is rejected with 422. Fields the account's posting defaults already answer are "
+            "not listed. Empty when the platform needs none."
+        ),
+    )
+    option_defaults: dict[str, bool] = Field(
+        default_factory=dict,
+        description=(
+            "The account's posting defaults as ``<object>.<field>``: used for any field a post "
+            "leaves out. Set by a workspace owner on the Accounts page."
         ),
     )
 
     @classmethod
     def from_social_account(cls, sa) -> AccountSummary:
+        from apps.composer.services import effective_platform_extra
+
         return cls(
             id=sa.id,
             platform=sa.platform,
@@ -115,11 +125,10 @@ class AccountSummary(Schema):
             supports_first_comment=sa.supports_first_comment(),
             requires_video=is_video_only(sa.platform),
             requires_media=requires_media(sa.platform),
-            required_options=(
-                [f"tiktok_business.{name}" for name in TikTokBusinessOptions.REQUIRED_FIELDS]
-                if sa.platform == "tiktok_business"
-                else []
-            ),
+            required_options=TikTokBusinessOptions.missing_fields(effective_platform_extra(sa, {}))
+            if sa.platform == "tiktok_business"
+            else [],
+            option_defaults=TikTokBusinessOptions.api_defaults(sa),
         )
 
 
@@ -184,11 +193,12 @@ class PlatformOverride(Schema):
 class TikTokBusinessOptions(Schema):
     """Per-post confirmations and settings for a ``tiktok_business`` account.
 
-    Mirrors the composer's "TikTok business video" panel. Confirmations are
-    per post and are never carried over: sending this object replaces any
-    options saved earlier. Drafts may omit it; scheduling requires
-    ``media_rights_confirmed`` and ``owner_approved`` to be true and both
-    disclosures to be answered.
+    Mirrors the composer's "TikTok business video" panel. Sending this object
+    replaces any options saved earlier on the post. A field left out (or the
+    whole object) falls back to the account's posting defaults, set once by an
+    owner on the Accounts page; see the account's ``option_defaults``.
+    Scheduling requires ``media_rights_confirmed`` and ``owner_approved`` to be
+    true and both disclosures answered, after those defaults.
     """
 
     # Stored key in PlatformPost.platform_extra for each API field.
@@ -209,12 +219,19 @@ class TikTokBusinessOptions(Schema):
         "paid_partnership",
     )
 
-    media_rights_confirmed: bool = Field(
-        False, description="We have permission to use this video, music and other material."
+    media_rights_confirmed: bool | None = Field(
+        None,
+        description=(
+            "We have permission to use this video, music and other material. "
+            "Omit to use the account's posting defaults."
+        ),
     )
-    owner_approved: bool = Field(
-        False,
-        description="The account owner (or client) approved this video, caption and target account for public posting.",
+    owner_approved: bool | None = Field(
+        None,
+        description=(
+            "The account owner (or client) approved this video, caption and target account for public posting. "
+            "Omit to use the account's posting defaults."
+        ),
     )
     promotional_content: bool | None = Field(
         None, description="Promotes the account owner's own business (TikTok ``is_brand_organic``)."
@@ -223,7 +240,9 @@ class TikTokBusinessOptions(Schema):
         None,
         description="Promotes another brand for payment or another incentive (TikTok ``is_branded_content``).",
     )
-    ai_generated_label: bool = Field(False, description="Label the video as AI-generated content.")
+    ai_generated_label: bool | None = Field(
+        None, description="Label the video as AI-generated content. Omit to use the account's posting defaults."
+    )
     disable_comments: bool = False
     disable_duet: bool = False
     disable_stitch: bool = False
@@ -235,6 +254,18 @@ class TikTokBusinessOptions(Schema):
             if value is not None:
                 extra[key] = value
         return extra
+
+    @classmethod
+    def api_defaults(cls, social_account) -> dict[str, bool]:
+        """The account's posting defaults under their API names."""
+        from apps.composer.services import account_posting_defaults
+
+        stored_to_api = {key: field for field, key in cls.STORED_KEYS.items()}
+        return {
+            f"tiktok_business.{stored_to_api[key]}": value
+            for key, value in account_posting_defaults(social_account).items()
+            if key in stored_to_api
+        }
 
     @classmethod
     def missing_fields(cls, platform_extra: dict | None) -> list[str]:
@@ -296,8 +327,9 @@ class CreatePostRequest(Schema):
     tiktok_business: TikTokBusinessOptions | None = Field(
         None,
         description=(
-            "Required to schedule to a ``tiktok_business`` account (see that account's "
-            "``required_options``); rejected with 422 for any other platform."
+            "Options for a ``tiktok_business`` account. Fields left out use the account's posting "
+            "defaults; whatever is still unset is listed in its ``required_options``. Rejected with "
+            "422 for any other platform."
         ),
     )
     action: PostAction = Field(

@@ -846,6 +846,46 @@ def retry_webhooks(request, workspace_id, account_id):
     return redirect("social_accounts:list", workspace_id=workspace_id)
 
 
+@login_required
+@require_permission("manage_social_accounts")
+@require_POST
+def posting_defaults(request, workspace_id, account_id):
+    """Save (or clear) an account's standing TikTok Business answers.
+
+    Given once by someone who manages the workspace's accounts, then used by
+    every post to the account that leaves them unset. Consents are stored only
+    when ticked: leaving one unticked means "ask on each post".
+    """
+    account = get_object_or_404(SocialAccount.objects.for_workspace(workspace_id), id=account_id)
+    if account.platform != "tiktok_business":
+        raise PermissionDenied("Posting defaults are only available for TikTok Business accounts.")
+
+    if request.POST.get("action") == "clear":
+        account.posting_defaults = {}
+        note = f"Cleared the TikTok posting defaults for {account.display_label}."
+    else:
+        defaults: dict = {}
+        for key in ("rights_confirmed", "client_approval_confirmed"):
+            if request.POST.get(key) == "true":
+                defaults[key] = True
+        for key in ("is_brand_organic", "is_branded_content"):
+            if request.POST.get(key) in ("true", "false"):
+                defaults[key] = request.POST[key] == "true"
+        defaults["is_ai_generated"] = request.POST.get("is_ai_generated") == "true"
+        user = request.user
+        defaults["set_by"] = (getattr(user, "name", "") or user.email or str(user.pk)).strip()
+        defaults["set_at"] = timezone.now().isoformat()
+        account.posting_defaults = defaults
+        note = f"Saved the TikTok posting defaults for {account.display_label}."
+    account.save(update_fields=["posting_defaults", "updated_at"])
+    logger.info("Posting defaults updated for account %s by user %s", account.id, request.user.pk)
+
+    if request.headers.get("HX-Request"):
+        return _render_account_card(request, account, workspace_id)
+    messages.success(request, note)
+    return redirect("social_accounts:list", workspace_id=workspace_id)
+
+
 def _render_account_card(request, account, workspace_id):
     """Render one account card for an htmx ``outerHTML`` swap of ``#account-<id>``."""
     return render(

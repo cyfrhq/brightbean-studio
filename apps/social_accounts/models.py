@@ -109,6 +109,13 @@ class SocialAccount(models.Model):
     # way to ask.
     missing_scopes = models.JSONField(default=list, blank=True)
 
+    # Standing answers an owner gives once for every post to this account, so
+    # nobody re-ticks them per post. TikTok Business only for now: the media
+    # rights / owner approval confirmations and the promotional disclosures,
+    # plus who set them and when. A post's own explicit answers always win.
+    # See ``apps.composer.services.effective_platform_extra``.
+    posting_defaults = models.JSONField(default=dict, blank=True)
+
     # Connection health
     connection_status = models.CharField(
         max_length=20,

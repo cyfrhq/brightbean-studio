@@ -55,6 +55,11 @@ urlpatterns = [
         name="retry_webhooks",
     ),
     path(
+        "<uuid:workspace_id>/<uuid:account_id>/posting-defaults/",
+        views.posting_defaults,
+        name="posting_defaults",
+    ),
+    path(
         "<uuid:workspace_id>/<uuid:account_id>/disconnect/",
         views.disconnect,
         name="disconnect",

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from django.test import Client
@@ -103,7 +104,18 @@ def video(workspace):
         filename="video.mp4",
         media_type=MediaAsset.MediaType.VIDEO,
         mime_type="video/mp4",
+        width=1080,
+        height=1920,
+        duration=30,
+        file_size=1000,
     )
+
+
+@pytest.fixture(autouse=True)
+def _frame_rate():
+    """Synthetic files have no real frames; the spec check reads 30 FPS."""
+    with patch("apps.social_accounts.business_media.video_frame_rate", return_value=30.0):
+        yield
 
 
 def _when():
@@ -205,7 +217,7 @@ class TestUpdateAndSchedule:
         post_id = _create(client, ttb, action="draft", media=[video], options=FULL_OPTIONS).json()["id"]
         assert _patch(client, post_id, {"tiktok_business": {"disable_duet": True}}).status_code == 200
         extra = PlatformPost.objects.get(post_id=post_id).platform_extra
-        assert extra["rights_confirmed"] is False
+        assert "rights_confirmed" not in extra
         assert "is_brand_organic" not in extra
 
     def test_patch_cannot_strip_a_scheduled_posts_confirmation(self, client, ttb, video):
@@ -250,9 +262,263 @@ class TestCapabilitiesAndBackstops:
         assert "Confirm media rights" in json.dumps(result)
         assert not PlatformPost.objects.filter(status="scheduled").exists()
 
-    def test_publisher_blocker_matches_provider_wording(self, ttb):
-        assert publish_blocker(ttb, media_types={"video"}) == "Confirm media rights and client approval before posting."
+    def test_publisher_blocker_starts_with_provider_wording(self, ttb):
+        assert publish_blocker(ttb, media_types={"video"}).startswith(
+            "Confirm media rights and client approval before posting."
+        )
         consented = {"rights_confirmed": True, "client_approval_confirmed": True}
-        assert publish_blocker(ttb, media_types={"video"}, platform_extra=consented) == (
+        assert publish_blocker(ttb, media_types={"video"}, platform_extra=consented).startswith(
             "Choose the promotional-content disclosures for this video."
         )
+
+
+# ---------------------------------------------------------------------------
+# Account posting defaults: answered once per account, used by every path.
+# ---------------------------------------------------------------------------
+
+OWN_ACCOUNT_DEFAULTS = {
+    "rights_confirmed": True,
+    "client_approval_confirmed": True,
+    "is_brand_organic": False,
+    "is_branded_content": False,
+    "is_ai_generated": False,
+    "set_by": "TTB",
+    "set_at": "2026-11-23T00:00:00+00:00",
+}
+
+
+@pytest.fixture
+def ttb_with_defaults(ttb):
+    ttb.posting_defaults = dict(OWN_ACCOUNT_DEFAULTS)
+    ttb.save(update_fields=["posting_defaults"])
+    return ttb
+
+
+@pytest.fixture
+def browser(user, workspace):
+    session = _SecureClient()
+    session.force_login(user)
+    return session
+
+
+def _failed_post(workspace, user, account, video, platform_extra=None):
+    post = Post.objects.create(workspace=workspace, author=user, caption="synthetic caption")
+    post.media_attachments.create(media_asset=video, position=0)
+    return PlatformPost.objects.create(
+        post=post,
+        social_account=account,
+        status="failed",
+        publish_error="Confirm media rights and client approval before posting.",
+        platform_extra=platform_extra or {},
+    )
+
+
+@pytest.mark.django_db
+class TestAccountDefaults:
+    def test_defaults_fill_only_what_the_post_left_unset(self, ttb_with_defaults):
+        from apps.composer.services import effective_platform_extra
+
+        extra = effective_platform_extra(ttb_with_defaults, {"is_brand_organic": True})
+        assert extra["rights_confirmed"] is True
+        assert extra["is_brand_organic"] is True  # the post's own answer wins
+        assert extra["account_defaults_applied"]["set_by"] == "TTB"
+        assert "is_brand_organic" not in extra["account_defaults_applied"]["keys"]
+
+    def test_explicit_unticked_consent_on_the_post_still_blocks(self, ttb_with_defaults):
+        assert publish_blocker(
+            ttb_with_defaults, media_types={"video"}, platform_extra={"rights_confirmed": False}
+        ).startswith("Confirm media rights")
+
+    def test_api_schedules_with_no_options_when_defaults_are_set(self, client, ttb_with_defaults, video):
+        response = _create(client, ttb_with_defaults, media=[video])
+        assert response.status_code == 201, response.content
+        assert PlatformPost.objects.get(post_id=response.json()["id"]).status == "scheduled"
+
+    def test_accounts_report_defaults_and_nothing_left_required(self, client, ttb_with_defaults):
+        accounts = {a["id"]: a for a in client.get("/api/v1/accounts/").json()["accounts"]}
+        summary = accounts[str(ttb_with_defaults.id)]
+        assert summary["required_options"] == []
+        assert summary["option_defaults"]["tiktok_business.owner_approved"] is True
+        assert summary["option_defaults"]["tiktok_business.paid_partnership"] is False
+
+    def test_mcp_schedule_works_with_defaults(self, client, ttb_with_defaults, video):
+        rpc = {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": "schedule_post",
+                "arguments": {
+                    "social_account_id": str(ttb_with_defaults.id),
+                    "caption": "synthetic caption",
+                    "media_asset_ids": [str(video.id)],
+                    "scheduled_at": _when(),
+                },
+            },
+            "id": 1,
+        }
+        client.post(MCP_URL, data=json.dumps(rpc), content_type="application/json")
+        assert PlatformPost.objects.filter(status="scheduled", social_account=ttb_with_defaults).exists()
+
+    def test_owner_saves_and_clears_defaults(self, browser, workspace, ttb):
+        from django.urls import reverse
+
+        url = reverse("social_accounts:posting_defaults", kwargs={"workspace_id": workspace.id, "account_id": ttb.id})
+        response = browser.post(
+            url,
+            {
+                "rights_confirmed": "true",
+                "client_approval_confirmed": "true",
+                "is_brand_organic": "false",
+                "is_branded_content": "false",
+            },
+        )
+        assert response.status_code == 302
+        ttb.refresh_from_db()
+        assert ttb.posting_defaults["rights_confirmed"] is True
+        assert ttb.posting_defaults["is_branded_content"] is False
+        assert ttb.posting_defaults["set_by"] == "TTB"
+
+        browser.post(url, {"action": "clear"})
+        ttb.refresh_from_db()
+        assert ttb.posting_defaults == {}
+
+    def test_unticked_consent_is_not_stored_as_a_default(self, browser, workspace, ttb):
+        from django.urls import reverse
+
+        url = reverse("social_accounts:posting_defaults", kwargs={"workspace_id": workspace.id, "account_id": ttb.id})
+        browser.post(url, {"rights_confirmed": "true", "is_brand_organic": "false", "is_branded_content": "false"})
+        ttb.refresh_from_db()
+        assert "client_approval_confirmed" not in ttb.posting_defaults
+        assert publish_blocker(ttb, media_types={"video"}).startswith("Confirm media rights")
+
+    def test_defaults_only_for_tiktok_business(self, browser, workspace, linkedin):
+        from django.urls import reverse
+
+        url = reverse(
+            "social_accounts:posting_defaults", kwargs={"workspace_id": workspace.id, "account_id": linkedin.id}
+        )
+        assert browser.post(url, {"rights_confirmed": "true"}).status_code == 403
+
+
+@pytest.mark.django_db
+class TestVideoCheckedAtScheduling:
+    def test_too_short_video_is_refused_when_scheduling(self, client, ttb_with_defaults, video):
+        MediaAsset.objects.filter(id=video.id).update(duration=2)
+        response = _create(client, ttb_with_defaults, media=[video])
+        assert response.status_code == 422
+        assert "2 s long" in json.dumps(response.json())
+        assert not PlatformPost.objects.filter(status="scheduled").exists()
+
+    def test_wrong_frame_rate_is_refused_when_scheduling(self, client, ttb_with_defaults, video):
+        with patch("apps.social_accounts.business_media.video_frame_rate", return_value=15.0):
+            response = _create(client, ttb_with_defaults, media=[video])
+        assert response.status_code == 422
+        assert "15 FPS" in json.dumps(response.json())
+
+    def test_video_still_processing_is_refused(self, ttb_with_defaults, video):
+        video.processing_status = MediaAsset.ProcessingStatus.PROCESSING
+        assert "still being processed" in publish_blocker(
+            ttb_with_defaults, media_types={"video"}, media_assets=[video]
+        )
+
+
+@pytest.mark.django_db
+class TestRetry:
+    def test_api_retry_reschedules_a_failed_post_using_defaults(
+        self, client, workspace, user, ttb_with_defaults, video
+    ):
+        pp = _failed_post(workspace, user, ttb_with_defaults, video)
+        response = client.post(f"/api/v1/posts/{pp.post_id}/retry")
+        assert response.status_code == 200, response.content
+        pp.refresh_from_db()
+        assert pp.status == "scheduled"
+        assert pp.publish_error == ""
+        assert pp.scheduled_at <= timezone.now()
+
+    def test_api_retry_says_why_it_cannot_and_changes_nothing(self, client, workspace, user, ttb, video):
+        pp = _failed_post(workspace, user, ttb, video)
+        response = client.post(f"/api/v1/posts/{pp.post_id}/retry")
+        assert response.status_code == 422
+        assert "Confirm media rights" in response.json()["detail"]
+        pp.refresh_from_db()
+        assert pp.status == "failed"
+
+    def test_api_retry_with_nothing_failed_is_409(self, client, ttb, video):
+        post_id = _create(client, ttb, action="draft", media=[video]).json()["id"]
+        assert client.post(f"/api/v1/posts/{post_id}/retry").status_code == 409
+
+    def test_composer_retry_now(self, browser, workspace, user, ttb_with_defaults, video):
+        from django.urls import reverse
+
+        pp = _failed_post(workspace, user, ttb_with_defaults, video)
+        url = reverse("composer:retry_failed", kwargs={"workspace_id": workspace.id, "post_id": pp.post_id})
+        assert browser.post(url).status_code == 302
+        pp.refresh_from_db()
+        assert pp.status == "scheduled"
+
+    def test_composer_retry_now_reports_the_blocker(self, browser, workspace, user, ttb, video):
+        from django.urls import reverse
+
+        pp = _failed_post(workspace, user, ttb, video)
+        url = reverse("composer:retry_failed", kwargs={"workspace_id": workspace.id, "post_id": pp.post_id})
+        response = browser.post(url)
+        assert response.status_code == 400
+        assert "Confirm media rights" in response.json()["errors"]["retry"]
+        pp.refresh_from_db()
+        assert pp.status == "failed"
+
+
+@pytest.mark.django_db
+class TestComposerScheduling:
+    def _schedule(self, browser, workspace, post, account, **fields):
+        from django.urls import reverse
+
+        url = reverse("composer:save_post_edit", kwargs={"workspace_id": workspace.id, "post_id": post.id})
+        data = {
+            "action": "schedule",
+            "caption": "synthetic caption",
+            "tags": "",
+            "selected_accounts": str(account.id),
+            "scheduled_date": "2027-09-01",
+            "scheduled_time": "09:00",
+            **fields,
+        }
+        return browser.post(url, data)
+
+    def _draft(self, workspace, user, video):
+        post = Post.objects.create(workspace=workspace, author=user, caption="synthetic caption")
+        post.media_attachments.create(media_asset=video, position=0)
+        return post
+
+    def test_composer_refuses_to_schedule_without_answers(self, browser, workspace, user, ttb, video):
+        post = self._draft(workspace, user, video)
+        response = self._schedule(browser, workspace, post, ttb)
+        assert response.status_code == 400
+        assert "Confirm media rights" in response.json()["errors"]["tiktok_business"]
+        assert not PlatformPost.objects.filter(status="scheduled").exists()
+
+    def test_composer_schedules_with_prefilled_defaults(self, browser, workspace, user, ttb_with_defaults, video):
+        post = self._draft(workspace, user, video)
+        acc = ttb_with_defaults.id
+        # What the pre-filled panel submits.
+        response = self._schedule(
+            browser,
+            workspace,
+            post,
+            ttb_with_defaults,
+            **{
+                f"ttb_rights_confirmed_{acc}": "true",
+                f"ttb_client_approval_confirmed_{acc}": "true",
+                f"ttb_is_brand_organic_{acc}": "false",
+                f"ttb_is_branded_content_{acc}": "false",
+            },
+        )
+        assert response.status_code in (200, 204, 302), response.content
+        assert PlatformPost.objects.filter(status="scheduled", social_account=ttb_with_defaults).exists()
+
+    def test_composer_shows_account_defaults(self, browser, workspace, ttb_with_defaults):
+        from django.urls import reverse
+
+        response = browser.get(reverse("composer:compose", kwargs={"workspace_id": workspace.id}))
+        assert response.status_code == 200
+        assert "Pre-filled from this account" in response.content.decode()

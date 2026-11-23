@@ -34,7 +34,7 @@ from django.utils import timezone
 from apps.common.db import in_worker_thread, release_idle_connection
 from apps.common.worker import SHUTDOWN_REQUESTED
 from apps.composer.models import PlatformPost
-from apps.composer.services import publish_blocker, usable_media_types
+from apps.composer.services import effective_platform_extra, publish_blocker, usable_media_types
 from apps.credentials.models import resolve_platform_credentials
 from apps.media_library.storage import download_to_path
 from apps.social_accounts.error_messages import (
@@ -743,6 +743,7 @@ class PublishEngine:
             account,
             media_types=usable_media_types(pm.media_asset for pm in attachments),
             platform_extra=platform_post.platform_extra,
+            media_assets=[pm.media_asset for pm in attachments],
         )
         if blocker:
             raise PublishError(blocker, platform=account.get_platform_display(), retryable=False)
@@ -807,7 +808,7 @@ class PublishEngine:
                 ):
                     from apps.social_accounts.business_media import public_media_url
 
-                    url = public_media_url(asset)
+                    url = public_media_url(asset, label=account.get_platform_display())
                 if url.startswith("/"):
                     # Local storage: make absolute using APP_URL
                     url = f"{app_url}{url}"
@@ -820,8 +821,14 @@ class PublishEngine:
             # Merge per-platform extras (e.g. YouTube privacy_status, custom
             # tags, thumbnail) on top of the base extra dict.
             extra = {"tags": platform_post.post.tags or []}
-            platform_extra = platform_post.platform_extra or {}
+            # Account posting defaults (TikTok Business) fill what the post left
+            # unset. Kept on the row too, so a published post records that its
+            # confirmation came from the account defaults and who set them.
+            platform_extra = effective_platform_extra(account, platform_post.platform_extra)
+            if "account_defaults_applied" in platform_extra:
+                platform_post.platform_extra = platform_extra
             extra.update(platform_extra)
+            extra.pop("account_defaults_applied", None)
 
             # Inject page_id for Facebook from the connected account.
             if platform == "facebook" and "page_id" not in extra:

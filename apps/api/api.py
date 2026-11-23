@@ -244,6 +244,8 @@ def _action_for_path(method: str, path: str, *, status_code: int) -> str:
             return f"post.schedule.{status_code}"
         if path.endswith("/cancel"):
             return f"post.cancel.{status_code}"
+        if path.endswith("/retry"):
+            return f"post.retry.{status_code}"
         if method == "POST":
             return f"post.create.{status_code}"
         if method == "GET":

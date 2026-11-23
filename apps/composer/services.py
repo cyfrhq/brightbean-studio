@@ -181,6 +181,7 @@ def create_post(
             social_account,
             media_types=usable_media_types(asset_map.values()),
             platform_extra=platform_extra,
+            media_assets=[asset_map[u] for _, u in resolved if u is not None],
         )
         if reason:
             raise ValueError(reason)
@@ -453,6 +454,47 @@ TIKTOK_BUSINESS_REQUIRED_CONSENTS = ("rights_confirmed", "client_approval_confir
 TIKTOK_BUSINESS_REQUIRED_DISCLOSURES = ("is_brand_organic", "is_branded_content")
 
 
+TIKTOK_BUSINESS_DEFAULT_KEYS = (
+    *TIKTOK_BUSINESS_REQUIRED_CONSENTS,
+    *TIKTOK_BUSINESS_REQUIRED_DISCLOSURES,
+    "is_ai_generated",
+)
+
+
+def account_posting_defaults(social_account) -> dict:
+    """The standing per-account answers an owner saved, as ``platform_extra`` keys."""
+    if social_account.platform != "tiktok_business":
+        return {}
+    stored = social_account.posting_defaults or {}
+    return {key: stored[key] for key in TIKTOK_BUSINESS_DEFAULT_KEYS if isinstance(stored.get(key), bool)}
+
+
+def effective_platform_extra(social_account, platform_extra: dict | None) -> dict:
+    """``platform_extra`` with the account's posting defaults filled in.
+
+    Only keys the post leaves unset are filled: anything the post answered
+    itself (the composer's checkboxes, the API's options) wins. When a default
+    is used, ``account_defaults_applied`` records which keys and who set them,
+    so the published row shows where its confirmation came from.
+    """
+    extra = dict(platform_extra or {})
+    extra.pop("account_defaults_applied", None)
+    defaults = account_posting_defaults(social_account)
+    used = [key for key in defaults if key not in extra]
+    if not used:
+        return extra
+    stored = social_account.posting_defaults or {}
+    return {
+        **defaults,
+        **extra,
+        "account_defaults_applied": {
+            "keys": used,
+            "set_by": stored.get("set_by", ""),
+            "set_at": stored.get("set_at", ""),
+        },
+    }
+
+
 def tiktok_business_missing(platform_extra: dict | None) -> list[str]:
     """Stored ``platform_extra`` keys a TikTok Business post still lacks."""
     extra = platform_extra or {}
@@ -463,22 +505,25 @@ def tiktok_business_missing(platform_extra: dict | None) -> list[str]:
 
 def tiktok_business_blocker(platform_extra: dict | None) -> str:
     missing = tiktok_business_missing(platform_extra)
+    hint = " Tick them on this post, or set this account's TikTok posting defaults once on the Accounts page."
     if any(key in TIKTOK_BUSINESS_REQUIRED_CONSENTS for key in missing):
-        return "Confirm media rights and client approval before posting."
+        return "Confirm media rights and client approval before posting." + hint
     if missing:
-        return "Choose the promotional-content disclosures for this video."
+        return "Choose the promotional-content disclosures for this video." + hint
     return ""
 
 
-def publish_blocker(social_account, *, media_types, platform_extra: dict | None = None) -> str:
+def publish_blocker(social_account, *, media_types, platform_extra: dict | None = None, media_assets=None) -> str:
     """Why a post can't publish to ``social_account`` as it stands, or "".
 
     The one statement of this rule. The publisher checks it before calling a
     platform, and every path that schedules a post checks it first so the user
     hears about it then rather than after the post's other platforms have gone
     out. Only failures that are certain before the platform is ever called: the
-    media a platform can't do without (``media_blocker``), and a pin with no
-    board, which our own Pinterest provider refuses.
+    media a platform can't do without (``media_blocker``), a pin with no
+    board, which our own Pinterest provider refuses, and a TikTok Business post
+    without its confirmations (after account defaults) or whose video TikTok
+    will refuse. The video is checked only when ``media_assets`` is given.
     """
     reason = media_blocker(social_account, media_types=media_types)
     if reason:
@@ -486,8 +531,23 @@ def publish_blocker(social_account, *, media_types, platform_extra: dict | None 
     if social_account.platform == "pinterest" and not (platform_extra or {}).get("board_id"):
         return "Pinterest needs a board for every pin. Choose one for this post in the composer before scheduling it."
     if social_account.platform == "tiktok_business":
-        return tiktok_business_blocker(platform_extra)
+        reason = tiktok_business_blocker(effective_platform_extra(social_account, platform_extra))
+        if reason or media_assets is None:
+            return reason
+        from apps.social_accounts.business_media import business_video_problem
+
+        videos = [asset for asset in media_assets if asset.file and asset.media_type == "video"]
+        if videos:
+            return business_video_problem(videos[0])
     return ""
+
+
+def tiktok_business_assets(platform_post) -> list | None:
+    """The post's attached assets when the row is TikTok Business, else None."""
+    if platform_post.social_account.platform != "tiktok_business":
+        return None
+    attachments = platform_post.post.media_attachments.select_related("media_asset").order_by("position")
+    return [pm.media_asset for pm in attachments]
 
 
 def require_publishable(platform_post, *, media_types=None) -> None:
@@ -502,9 +562,32 @@ def require_publishable(platform_post, *, media_types=None) -> None:
         platform_post.social_account,
         media_types=media_types,
         platform_extra=platform_post.platform_extra,
+        media_assets=tiktok_business_assets(platform_post),
     )
     if reason:
         raise ValueError(reason)
+
+
+def retry_failed_platform_post(platform_post) -> None:
+    """Send a failed row back to the publisher now, or raise ``ValueError``.
+
+    Runs the same publish checks as scheduling first, so a retry that can only
+    fail again (missing TikTok confirmations, a video TikTok refuses) says why
+    instead of silently queueing another failure. Approval was already given
+    when the post was first scheduled; the caller checks ``publish_directly``.
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    if platform_post.status != "failed":
+        raise ValueError("Only a failed post can be retried.")
+    require_publishable(platform_post)
+    with transaction.atomic():
+        platform_post.scheduled_at = timezone.now()
+        # Also clears the old attempt's error, backoff and platform handle.
+        platform_post.transition_to("scheduled")
+        platform_post.save(update_fields=[*platform_post.TRANSITION_FIELDS, "scheduled_at", "updated_at"])
+        sync_post_scheduled_at(platform_post.post)
 
 
 def media_change_blocker(post, *, media_types_after) -> str:

@@ -188,6 +188,10 @@ Usage: {% include "social_accounts/partials/_account_card.html" with account=acc
     {% endif %}
     {% endwith %}
 
+    {% if account.platform == "tiktok_business" %}
+    {% include "social_accounts/partials/_tiktok_posting_defaults.html" %}
+    {% endif %}
+
     <!-- Posting Schedule -->
     {% if account.connection_status == "connected" %}
     <div class="border-t border-stone-100 mt-4 pt-4">

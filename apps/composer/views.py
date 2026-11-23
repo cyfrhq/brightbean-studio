@@ -54,11 +54,13 @@ from .models import (
     Tag,
 )
 from .services import (
+    account_posting_defaults,
     media_blocker,
     media_change_blocker,
     post_media_types,
     publish_blocker,
     require_publishable,
+    retry_failed_platform_post,
     usable_media_types,
 )
 from .status import READONLY_STATUSES, derive_post_status
@@ -363,25 +365,62 @@ def _sync_platform_posts(request, post, workspace, initial_status=None):
             pp.platform_extra = extra
 
         if account.platform == "tiktok_business":
-            # Fresh confirmation on every save, never reuse a checkbox from a
-            # prior edit. Drafts remain savable before these checks are done.
-            extra = {}
-            for field in (
-                "rights_confirmed",
-                "client_approval_confirmed",
-                "is_ai_generated",
-                "disable_comment",
-                "disable_duet",
-                "disable_stitch",
-            ):
-                extra[field] = request.POST.get(f"ttb_{field}_{acc_id}") == "true"
-            for field in ("is_brand_organic", "is_branded_content"):
-                value = request.POST.get(f"ttb_{field}_{acc_id}")
-                if value in ("true", "false"):
-                    extra[field] = value == "true"
-            pp.platform_extra = extra
+            pp.platform_extra = _tiktok_business_extra_from_form(request, acc_id)
 
         pp.save()
+
+
+def _tiktok_business_extra_from_form(request, acc_id) -> dict:
+    """The TikTok Business panel's answers for one account, as ``platform_extra``.
+
+    Fresh on every save, never reused from a prior edit: the panel is
+    pre-filled from the account's posting defaults instead. Drafts remain
+    savable before these checks are done.
+    """
+    extra = {}
+    for field in (
+        "rights_confirmed",
+        "client_approval_confirmed",
+        "is_ai_generated",
+        "disable_comment",
+        "disable_duet",
+        "disable_stitch",
+    ):
+        extra[field] = request.POST.get(f"ttb_{field}_{acc_id}") == "true"
+    for field in ("is_brand_organic", "is_branded_content"):
+        value = request.POST.get(f"ttb_{field}_{acc_id}")
+        if value in ("true", "false"):
+            extra[field] = value == "true"
+    return extra
+
+
+def _validate_tiktok_business(request, post, workspace, action):
+    """Refuse to schedule a TikTok Business post that can only fail.
+
+    Same rule the publisher applies (``publish_blocker``): the confirmations,
+    after the account's posting defaults, and a video TikTok accepts.
+    """
+    if action not in _PUBLISHING_ACTIONS:
+        return None
+    selected_ids = _parse_selected_account_ids(request.POST.get("selected_accounts", ""))
+    if not selected_ids:
+        return None
+    accounts = list(SocialAccount.objects.filter(id__in=selected_ids, workspace=workspace, platform="tiktok_business"))
+    if not accounts:
+        return None
+    assets = _composer_media_assets(request, post, workspace)
+    media_types = usable_media_types(assets)
+    for account in accounts:
+        reason = publish_blocker(
+            account,
+            media_types=media_types,
+            platform_extra=_tiktok_business_extra_from_form(request, str(account.id)),
+            media_assets=assets,
+        )
+        if reason:
+            name = account.account_name or account.account_handle
+            return JsonResponse({"errors": {"tiktok_business": f"{name}: {reason}"}}, status=400)
+    return None
 
 
 def _validate_pinterest_board_selection(request, post, workspace):
@@ -422,6 +461,11 @@ _PUBLISH_COMMITTING_ACTIONS = frozenset(
     }
 )
 
+# The TikTok Business confirmations include the owner's approval, which the
+# approval workflow is how a client gives, so only the actions that hand a post
+# straight to the publisher are checked for them.
+_PUBLISHING_ACTIONS = _PUBLISH_COMMITTING_ACTIONS - {"submit_for_approval", "resubmit_for_approval"}
+
 
 def _composer_media_types(request, post, workspace) -> set[str]:
     """Usable media types on the post plus the uploads waiting to be attached."""
@@ -432,6 +476,19 @@ def _composer_media_types(request, post, workspace) -> set[str]:
         pending_ids = request.session.get(f"pending_media_{workspace.id}", [])
         media_types |= usable_media_types(MediaAsset.objects.filter(id__in=pending_ids, workspace=workspace))
     return media_types
+
+
+def _composer_media_assets(request, post, workspace) -> list:
+    """The post's attached assets in order, plus uploads waiting to be attached."""
+    assets = []
+    if post.pk:
+        attachments = post.media_attachments.select_related("media_asset").order_by("position")
+        assets = [pm.media_asset for pm in attachments]
+    if post._state.adding:
+        pending_ids = request.session.get(f"pending_media_{workspace.id}", [])
+        by_id = {str(a.id): a for a in MediaAsset.objects.filter(id__in=pending_ids, workspace=workspace)}
+        assets += [by_id[str(i)] for i in pending_ids if str(i) in by_id]
+    return assets
 
 
 def _validate_required_media(request, post, workspace, action):
@@ -703,6 +760,11 @@ def compose(request, workspace_id, post_id=None):
             "name": acc.account_name or acc.account_handle,
             "youtube_url": f"https://www.youtube.com/channel/{acc.account_platform_id}"
             if acc.platform == "youtube"
+            else "",
+            # Standing TikTok Business answers, pre-filled into the panel.
+            "posting_defaults": account_posting_defaults(acc),
+            "posting_defaults_set_by": (acc.posting_defaults or {}).get("set_by", "")
+            if account_posting_defaults(acc)
             else "",
             **cfg,
         }
@@ -1047,6 +1109,10 @@ def save_post(request, workspace_id, post_id=None):
     media_error = _validate_required_media(request, post, workspace, action)
     if media_error is not None:
         return media_error
+
+    tiktok_error = _validate_tiktok_business(request, post, workspace, action)
+    if tiktok_error is not None:
+        return tiktok_error
 
     # Handle action — note that Post itself no longer carries an editorial
     # status: every transition below operates on the PlatformPost children,
@@ -2578,6 +2644,43 @@ def clone_post_view(request, workspace_id, post_id):
 
     new_post = clone_post(post, author=request.user)
     target = reverse("composer:compose_edit", kwargs={"workspace_id": workspace.id, "post_id": new_post.id})
+    if request.htmx:
+        return HttpResponse(status=204, headers={"HX-Redirect": target})
+    return redirect(target)
+
+
+@login_required
+@require_POST
+def retry_failed_view(request, workspace_id, post_id):
+    """Send the post's failed channels back to the publisher now.
+
+    The publish checks run first (with the account's posting defaults), so a
+    retry that can only fail again says why instead of queueing another
+    failure. Same privilege as publishing now from the calendar.
+    """
+    from django.db import transaction
+    from django.urls import reverse
+
+    workspace = _get_workspace(request, workspace_id)
+    post = get_object_or_404(Post, id=post_id, workspace=workspace)
+    membership = request.workspace_membership
+    perms = membership.effective_permissions if membership else {}
+    if not perms.get("publish_directly", False):
+        raise PermissionDenied("You do not have permission to publish directly.")
+    if post.author_id != request.user.id and not perms.get("edit_others_posts", False):
+        raise PermissionDenied("You do not have permission to edit this post.")
+
+    failed = list(post.platform_posts.filter(status=PlatformPost.Status.FAILED).select_related("social_account"))
+    if not failed:
+        return JsonResponse({"errors": {"retry": "Nothing on this post has failed."}}, status=400)
+    try:
+        with transaction.atomic():
+            for pp in failed:
+                retry_failed_platform_post(pp)
+    except ValueError as exc:
+        return JsonResponse({"errors": {"retry": str(exc)}}, status=400)
+
+    target = reverse("composer:compose_edit", kwargs={"workspace_id": workspace.id, "post_id": post.id})
     if request.htmx:
         return HttpResponse(status=204, headers={"HX-Redirect": target})
     return redirect(target)

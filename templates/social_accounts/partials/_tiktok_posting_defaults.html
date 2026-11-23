@@ -1,0 +1,63 @@
+{% comment %}
+TikTok Business posting defaults: answered once here instead of on every post.
+Every post to this account (composer, API, AI Editor) uses them for anything it
+leaves unset; a post can still change them for itself. Included from
+_account_card.html for tiktok_business accounts.
+{% endcomment %}
+{% with d=account.posting_defaults %}
+<div class="border-t border-stone-100 mt-4 pt-4" x-data="{ open: {% if d.set_at %}false{% else %}true{% endif %} }">
+    <div class="flex items-start justify-between gap-3">
+        <div>
+            <h4 class="text-xs font-semibold text-stone-700 uppercase tracking-wider">TikTok posting defaults</h4>
+            {% if d.set_at %}
+            <p class="text-xs text-emerald-700 mt-0.5">
+                Set{% if d.set_by %} by {{ d.set_by }}{% endif %}{% if d.set_at %} on {{ d.set_at|slice:":10" }}{% endif %}.
+                Posts to this account no longer need these ticked each time.
+            </p>
+            {% else %}
+            <p class="text-xs text-stone-500 mt-0.5">Answer these once so posts to this account don't need them ticked each time.</p>
+            {% endif %}
+        </div>
+        <button type="button" @click="open = !open" class="text-xs font-semibold text-stone-600 underline underline-offset-2 cursor-pointer" x-text="open ? 'Hide' : 'Edit'">Edit</button>
+    </div>
+    <form method="post" x-show="open" x-cloak class="mt-3 space-y-2"
+          action="{% url 'social_accounts:posting_defaults' workspace_id=workspace_id account_id=account.id %}"
+          hx-post="{% url 'social_accounts:posting_defaults' workspace_id=workspace_id account_id=account.id %}"
+          hx-target="#account-{{ account.id }}"
+          hx-swap="outerHTML">
+        {% csrf_token %}
+        <label class="flex items-start gap-2 text-sm text-stone-700">
+            <input type="checkbox" name="rights_confirmed" value="true" class="mt-1" {% if d.rights_confirmed %}checked{% endif %}>
+            <span>We own, or have permission to use, the videos, music and other material we post to this account.</span>
+        </label>
+        <label class="flex items-start gap-2 text-sm text-stone-700">
+            <input type="checkbox" name="client_approval_confirmed" value="true" class="mt-1" {% if d.client_approval_confirmed %}checked{% endif %}>
+            <span>The account owner approves what we post here. Leave unticked for client accounts where each post needs their approval.</span>
+        </label>
+        <label class="block text-sm text-stone-700">Promotional content (promotes the account owner's own business)
+            <select name="is_brand_organic" class="block w-full border rounded p-2 text-sm mt-1">
+                <option value="">Ask on each post</option>
+                <option value="false" {% if d.is_brand_organic is False %}selected{% endif %}>No, unless changed on the post</option>
+                <option value="true" {% if d.is_brand_organic is True %}selected{% endif %}>Yes, every post</option>
+            </select>
+        </label>
+        <label class="block text-sm text-stone-700">Paid partnership (promotes another brand for payment)
+            <select name="is_branded_content" class="block w-full border rounded p-2 text-sm mt-1">
+                <option value="">Ask on each post</option>
+                <option value="false" {% if d.is_branded_content is False %}selected{% endif %}>No, unless changed on the post</option>
+                <option value="true" {% if d.is_branded_content is True %}selected{% endif %}>Yes, every post</option>
+            </select>
+        </label>
+        <label class="flex items-start gap-2 text-sm text-stone-700">
+            <input type="checkbox" name="is_ai_generated" value="true" class="mt-1" {% if d.is_ai_generated %}checked{% endif %}>
+            <span>Label posts as AI-generated content by default.</span>
+        </label>
+        <div class="flex items-center gap-2 pt-1">
+            <button type="submit" name="action" value="save" class="px-3 py-1.5 text-xs font-semibold text-white bg-stone-900 rounded-full hover:bg-stone-700 cursor-pointer">Save defaults</button>
+            {% if d.set_at %}
+            <button type="submit" name="action" value="clear" class="px-3 py-1.5 text-xs font-semibold text-stone-600 bg-stone-100 rounded-full hover:bg-stone-200 cursor-pointer">Clear defaults</button>
+            {% endif %}
+        </div>
+    </form>
+</div>
+{% endwith %}
