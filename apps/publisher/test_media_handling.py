@@ -102,6 +102,42 @@ class UrlOnlyProvidersSkipDownloadTest(SimpleTestCase):
         _token, content = provider.publish_post.call_args.args
         assert content.media_urls == ["https://cdn.example/a.jpg"]
 
+    @override_settings(STUDIO_THREADS_MEDIA_DELIVERY_ENABLED=True)
+    @patch("apps.social_accounts.business_media.threads_media_problem", return_value="")
+    @patch(
+        "apps.social_accounts.business_media.threads_media_url",
+        side_effect=lambda asset: f"https://gateway.example/media/opaque/{asset.filename}",
+    )
+    @patch("apps.publisher.engine.get_provider")
+    @patch("apps.publisher.engine._resolve_publish_credentials", return_value={})
+    def test_private_threads_media_uses_gateway(self, _creds, get_provider, gateway, _problem):
+        image = _attachment("a1")
+        video = _attachment("v1", media_type="video", filename="v.mp4", duration=20)
+        engine, platform_post, provider = _dispatch_mocks(
+            "threads", needs_local_media=False, attachments=[image, video]
+        )
+        get_provider.return_value = provider
+        engine._dispatch_to_provider(platform_post)
+        _token, content = provider.publish_post.call_args.args
+        assert content.media_urls == [
+            "https://gateway.example/media/opaque/a.jpg",
+            "https://gateway.example/media/opaque/v.mp4",
+        ]
+
+    @patch("apps.social_accounts.business_media.threads_media_problem", return_value="")
+    @patch("apps.social_accounts.business_media.threads_media_url")
+    @patch("apps.publisher.engine.get_provider")
+    @patch("apps.publisher.engine._resolve_publish_credentials", return_value={})
+    def test_threads_media_without_gateway_is_unchanged(self, _creds, get_provider, gateway, _problem):
+        engine, platform_post, provider = _dispatch_mocks(
+            "threads", needs_local_media=False, attachments=[_attachment("a1")]
+        )
+        get_provider.return_value = provider
+        engine._dispatch_to_provider(platform_post)
+        gateway.assert_not_called()
+        _token, content = provider.publish_post.call_args.args
+        assert content.media_urls == ["https://cdn.example/a.jpg"]
+
     @patch("apps.publisher.engine.download_to_path")
     @patch("apps.publisher.engine.get_provider")
     @patch("apps.publisher.engine._resolve_publish_credentials", return_value={})

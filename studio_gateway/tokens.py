@@ -7,6 +7,16 @@ from cryptography.fernet import Fernet, InvalidToken
 
 MEDIA_TTL = 3600
 
+# Stored suffix -> (public file name in the URL, Content-Type). Platforms that
+# fetch by URL (TikTok Business, Threads) see only these generic names.
+MEDIA_KINDS = {
+    ".mp4": ("video.mp4", "video/mp4"),
+    ".mov": ("video.mp4", "video/quicktime"),
+    ".jpg": ("image.jpg", "image/jpeg"),
+    ".jpeg": ("image.jpg", "image/jpeg"),
+    ".png": ("image.png", "image/png"),
+}
+
 
 def safe_media_path(name):
     path = PurePosixPath(name)
@@ -16,11 +26,20 @@ def safe_media_path(name):
         or path.is_absolute()
         or not name.startswith("media_library/")
         or ".." in path.parts
-        or path.suffix.lower() not in (".mp4", ".mov")
+        or path.suffix.lower() not in MEDIA_KINDS
         or len(name) > 500
     ):
         raise ValueError("Invalid media path")
     return path
+
+
+def media_filename(path):
+    """The generic file name a media URL ends with for this stored path."""
+    return MEDIA_KINDS[PurePosixPath(path).suffix.lower()][0]
+
+
+def media_content_type(path):
+    return MEDIA_KINDS[PurePosixPath(path).suffix.lower()][1]
 
 
 def issue_media_token(key, name):

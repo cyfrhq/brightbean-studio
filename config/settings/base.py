@@ -614,6 +614,9 @@ TIKTOK_BUSINESS_MEDIA_ORIGIN = env("TIKTOK_BUSINESS_MEDIA_ORIGIN", default="")
 TIKTOK_BUSINESS_MEDIA_KEY_FILE = env("TIKTOK_BUSINESS_MEDIA_KEY_FILE", default="")
 # Enable only after app/scope approval and media URL ownership verification.
 TIKTOK_BUSINESS_PUBLISH_ENABLED = env.bool("TIKTOK_BUSINESS_PUBLISH_ENABLED", default=False)
+# Threads fetches images and videos from a URL. When the app itself is private,
+# send it signed links through the same public media gateway instead.
+STUDIO_THREADS_MEDIA_DELIVERY_ENABLED = env.bool("STUDIO_THREADS_MEDIA_DELIVERY_ENABLED", default=False)
 # How long after a post goes live the first comment is attempted, and how many
 # times a failed attempt is retried. Both were previously read via getattr()
 # from settings that did not exist, so neither could be tuned or overridden.

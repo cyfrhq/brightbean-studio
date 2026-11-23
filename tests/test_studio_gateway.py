@@ -101,6 +101,29 @@ def test_media_range_head_and_off_switch(media, monkeypatch):
     assert request(path)[0].startswith("404")
 
 
+def test_images_are_served_with_their_type_and_kind_must_match(media):
+    root, key, _ = media
+    (root / "media_library/x.jpg").write_bytes(b"\xff\xd8synthetic")
+    (root / "media_library/x.png").write_bytes(b"\x89PNGsynthetic")
+    jpg, png = (issue_media_token(key, f"media_library/x.{ext}") for ext in ("jpg", "png"))
+    status, headers, body = request(f"/media/{jpg}/image.jpg")
+    assert (status, headers["Content-Type"], body) == ("200 OK", "image/jpeg", b"\xff\xd8synthetic")
+    assert request(f"/media/{png}/image.png")[1]["Content-Type"] == "image/png"
+    # A token only opens under the name of its own kind.
+    assert request(f"/media/{jpg}/video.mp4")[0].startswith("404")
+    assert request(f"/media/{jpg}/image.png")[0].startswith("404")
+    assert request(f"/media/{jpg}/image.webp")[0].startswith("404")
+    with pytest.raises(ValueError):
+        issue_media_token(key, "media_library/x.webp")
+
+
+def test_deletion_page_is_static_html():
+    status, headers, body = request("/data-deletion")
+    assert status == "200 OK" and headers["Content-Type"].startswith("text/html")
+    assert b"info@digicyfr.com" in body
+    assert request("/data-deletion", query="x=1")[0].startswith("404")
+
+
 def test_symlink_cannot_expose_other_files(media, tmp_path):
     root, key, _ = media
     outside = tmp_path / "outside.mp4"

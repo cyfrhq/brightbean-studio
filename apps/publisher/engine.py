@@ -809,6 +809,10 @@ class PublishEngine:
                     from apps.social_accounts.business_media import public_media_url
 
                     url = public_media_url(asset, label=account.get_platform_display())
+                elif platform == "threads" and getattr(settings, "STUDIO_THREADS_MEDIA_DELIVERY_ENABLED", False):
+                    from apps.social_accounts.business_media import threads_media_url
+
+                    url = threads_media_url(asset)
                 if url.startswith("/"):
                     # Local storage: make absolute using APP_URL
                     url = f"{app_url}{url}"

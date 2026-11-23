@@ -395,17 +395,22 @@ def _tiktok_business_extra_from_form(request, acc_id) -> dict:
 
 
 def _validate_tiktok_business(request, post, workspace, action):
-    """Refuse to schedule a TikTok Business post that can only fail.
+    """Refuse to schedule a TikTok Business or Threads post that can only fail.
 
-    Same rule the publisher applies (``publish_blocker``): the confirmations,
-    after the account's posting defaults, and a video TikTok accepts.
+    Same rule the publisher applies (``publish_blocker``): for TikTok Business
+    the confirmations, after the account's posting defaults, and a video TikTok
+    accepts; for Threads, media Threads accepts.
     """
     if action not in _PUBLISHING_ACTIONS:
         return None
     selected_ids = _parse_selected_account_ids(request.POST.get("selected_accounts", ""))
     if not selected_ids:
         return None
-    accounts = list(SocialAccount.objects.filter(id__in=selected_ids, workspace=workspace, platform="tiktok_business"))
+    accounts = list(
+        SocialAccount.objects.filter(
+            id__in=selected_ids, workspace=workspace, platform__in=("tiktok_business", "threads")
+        )
+    )
     if not accounts:
         return None
     assets = _composer_media_assets(request, post, workspace)
@@ -414,12 +419,16 @@ def _validate_tiktok_business(request, post, workspace, action):
         reason = publish_blocker(
             account,
             media_types=media_types,
-            platform_extra=_tiktok_business_extra_from_form(request, str(account.id)),
+            platform_extra=(
+                _tiktok_business_extra_from_form(request, str(account.id))
+                if account.platform == "tiktok_business"
+                else {}
+            ),
             media_assets=assets,
         )
         if reason:
             name = account.account_name or account.account_handle
-            return JsonResponse({"errors": {"tiktok_business": f"{name}: {reason}"}}, status=400)
+            return JsonResponse({"errors": {account.platform: f"{name}: {reason}"}}, status=400)
     return None
 
 

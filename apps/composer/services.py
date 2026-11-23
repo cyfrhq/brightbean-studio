@@ -523,7 +523,8 @@ def publish_blocker(social_account, *, media_types, platform_extra: dict | None 
     media a platform can't do without (``media_blocker``), a pin with no
     board, which our own Pinterest provider refuses, and a TikTok Business post
     without its confirmations (after account defaults) or whose video TikTok
-    will refuse. The video is checked only when ``media_assets`` is given.
+    will refuse, and Threads media Threads will refuse. Media is checked only
+    when ``media_assets`` is given.
     """
     reason = media_blocker(social_account, media_types=media_types)
     if reason:
@@ -539,12 +540,23 @@ def publish_blocker(social_account, *, media_types, platform_extra: dict | None 
         videos = [asset for asset in media_assets if asset.file and asset.media_type == "video"]
         if videos:
             return business_video_problem(videos[0])
+    if social_account.platform == "threads" and media_assets:
+        from apps.social_accounts.business_media import threads_media_problem
+
+        for asset in media_assets:
+            if asset.file and asset.media_type in ("image", "video"):
+                reason = threads_media_problem(asset)
+                if reason:
+                    return reason
     return ""
 
 
-def tiktok_business_assets(platform_post) -> list | None:
-    """The post's attached assets when the row is TikTok Business, else None."""
-    if platform_post.social_account.platform != "tiktok_business":
+MEDIA_CHECKED_PLATFORMS = ("tiktok_business", "threads")
+
+
+def media_checked_assets(platform_post) -> list | None:
+    """The post's attached assets when its platform's media is checked, else None."""
+    if platform_post.social_account.platform not in MEDIA_CHECKED_PLATFORMS:
         return None
     attachments = platform_post.post.media_attachments.select_related("media_asset").order_by("position")
     return [pm.media_asset for pm in attachments]
@@ -562,7 +574,7 @@ def require_publishable(platform_post, *, media_types=None) -> None:
         platform_post.social_account,
         media_types=media_types,
         platform_extra=platform_post.platform_extra,
-        media_assets=tiktok_business_assets(platform_post),
+        media_assets=media_checked_assets(platform_post),
     )
     if reason:
         raise ValueError(reason)
