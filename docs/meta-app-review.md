@@ -33,10 +33,14 @@ when you reach each screen.
 
 ## 3. Permissions to request (posting, plus insights)
 
-The draft submission in Meta's dashboard (App Review) was trimmed on 2026-11-26 to exactly
-these 10. Meta had pre-filled 22 requests, including ads, messaging, leads, Live Video,
-`pages_manage_metadata`, `business_management` and `read_insights`; those were removed
-because Studio's login flow does not use them and none can be shown in a screencast.
+The draft submission in Meta's dashboard (App Review) was trimmed on 2026-11-26 to these 10, and
+`business_management` must be added back by hand (see below), making 11. Meta had pre-filled 22 requests, including ads, messaging, leads, Live Video,
+`pages_manage_metadata`, and `read_insights`; those were removed because Studio's login flow does not use them and none can
+be shown in a screencast. `business_management` was removed too, then found to be **required**:
+with a user-token login, Meta's /me/accounts hides Pages owned by a business portfolio unless the
+app also requests it. Re-add it: Use cases > Manage everything on your Page > Permissions and
+features > business_management > Actions > Add to App Review (the action did not register when
+tried through automation).
 Removing one only drops it from this review; re-add from the use case's Customize page.
 `public_profile` is Meta's default login permission and needs no screencast.
 
@@ -49,6 +53,7 @@ Removing one only drops it from this review; re-add from the use case's Customiz
 | `instagram_content_publish` | Publishes the user's images, reels and carousels | `POST /{ig-user-id}/media`, `/media_publish` |
 | `threads_basic` | Identifies the connected Threads profile | `GET /me?fields=...` |
 | `threads_content_publish` | Publishes the user's text, image and video threads | `POST /{threads-user-id}/threads`, `/threads_publish` |
+| `business_management` | Lets the user connect a Page that belongs to their business portfolio (agency clients): Studio lists the Pages the login can manage, including business-owned ones | `GET /me/accounts` (business-owned Pages are only returned with this permission) |
 | `instagram_manage_insights` | Analytics page: reach, views and interactions for the user's own Instagram posts and account | `GET /{media-id}/insights`, `GET /{ig-user-id}/insights` |
 | `threads_manage_insights` | Analytics page: views, likes, replies and reposts for the user's own Threads posts | `GET /{threads-media-id}/insights` |
 
@@ -86,6 +91,13 @@ Removing one only drops it from this review; re-add from the use case's Customiz
 > The user writes a post, optionally attaches an image or video, and publishes or
 > schedules it to their Threads profile. Studio publishes it through the Threads API.
 
+**business_management**
+> Many of our clients' Facebook Pages belong to their business portfolio, not to a personal
+> profile. After the user logs in with Facebook Login for Business and chooses the Pages and
+> Businesses to share, Studio lists the Pages they manage; Meta returns business-owned Pages in
+> that list only when business_management is granted. Studio does not read or change business
+> settings, ad accounts, or other businesses' data.
+
 **instagram_manage_insights**
 > Studio's Analytics page shows the user how their own published Instagram posts and
 > account performed (reach, views, interactions) so they can judge what works. Studio
@@ -115,6 +127,10 @@ these; use a test Page and a test Instagram account that you control.
    the permission list being approved. Zoom on the permission names.
 5. Back in Studio, show the connected account card with the Page name and the linked
    Instagram username.
+
+Also in Recording A: connect one **business-owned Page** (for example Digicyfr, owned by the business
+`digi.cyfr`). Show choosing the Business and the Page in Meta's dialog, then the Page appearing in
+Studio's account list. This is what business_management is for.
 
 ### Recording B: publish to a Facebook Page (pages_manage_posts)
 1. Open the composer, write a caption, attach an image, select the Facebook Page.
@@ -148,8 +164,8 @@ a short video (reel). Open Instagram and show both posts.
 > The attached screencasts show every permission being granted and used end to end.
 > Permissions requested are limited to publishing and reading the insights of the user's
 > own posts: pages_show_list, pages_read_engagement, pages_manage_posts, instagram_basic,
-> instagram_content_publish, instagram_manage_insights, threads_basic,
-> threads_content_publish and threads_manage_insights. The app requests no ads,
+> instagram_content_publish, instagram_manage_insights, business_management (to list
+> business-owned Pages), threads_basic, threads_content_publish and threads_manage_insights. The app requests no ads,
 > messaging, lead or comment permissions. Account tokens are stored
 > encrypted. Users can disconnect an account at any time, and data deletion is
 > described at https://studio-connect.digicyfr.com/data-deletion. If you need to test
@@ -171,7 +187,9 @@ click through the app themselves. Options:
 
 - [x] Dashboard, **Become a Tech Provider**: done 2026-11-26. **[YOU]** answer the extra
       data-handling questions that App Review now asks.
-- [x] Draft App Review request trimmed to the 10 permissions in section 3.
+- [x] Draft App Review request trimmed to 10 permissions.
+- [ ] **[YOU]** Add `business_management` back to the draft by hand (steps in section 3).
+- [x] Studio now logs in with Meta app DigiCyfr Studio and login setup 4444380822539055 ("Studio User Token BM", 7 permissions). 9 of 10 Facebook/Instagram accounts were reconnected through it on 2026-11-26; New BD Kebab Radzyń is still on an old token (its owning business is not administered by the app owner).
 - [ ] **[YOU]** Open the **Manage messaging & content on Instagram** use case and finish
       its Unified Login setup (it is not ticked on the dashboard checklist).
 - [ ] Move Facebook and Instagram from the old app to this app (server change, ask first).
