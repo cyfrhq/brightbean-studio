@@ -358,7 +358,7 @@ def platform_name(account: SocialAccount) -> str:
 
 def content_noun(account: SocialAccount) -> str:
     """What a single post is called on the platform, for "per-video counts"."""
-    return "video" if account.platform in ("youtube", "tiktok") else "post"
+    return "video" if account.platform in ("youtube", "tiktok", "tiktok_business") else "post"
 
 
 def hero_cards(
@@ -808,6 +808,7 @@ def _media_kind(post: PlatformPost) -> str:
         "instagram": "Post",
         "instagram_login": "Post",
         "tiktok": "Video",
+        "tiktok_business": "Video",
         "youtube": "Video",
         "linkedin_company": "Post",
         "linkedin_personal": "Post",

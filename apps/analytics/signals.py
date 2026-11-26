@@ -48,9 +48,6 @@ def enqueue_analytics_backfill(sender, instance: SocialAccount, created: bool, u
     # Only act on real OAuth-token changes or first connect — anything else
     # (avatar refresh, follower count update) would re-trigger the backfill
     # noisily.
-    if instance.platform == "tiktok_business":
-        # This provider intentionally requests no analytics scopes.
-        return
     if _backfills_suppressed.get() or getattr(instance, "_skip_analytics_backfill", False):
         return
     if not created:

@@ -6,8 +6,10 @@ has to return it as ``OAuthTokens.refresh_token`` — every refresh path in the 
 skips accounts whose ``oauth_refresh_token`` is empty.
 """
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+from providers.exceptions import APIError
 from providers.threads import LONG_LIVED_TOKEN_TTL, ThreadsProvider
 
 CREDENTIALS = {"app_id": "th-id", "app_secret": "th-sec"}
@@ -82,3 +84,52 @@ class TestRefreshToken:
             "grant_type": "th_refresh_token",
             "access_token": "current-long-lived",
         }
+
+
+class TestAccountMetrics:
+    """Daily profile views and the live follower total, from /me/threads_insights."""
+
+    @staticmethod
+    def window(day=22):
+        tz = timezone(timedelta(hours=1))
+        return datetime(2026, 11, day, 0, 0, tzinfo=tz), datetime(2026, 11, day, 23, 59, 59, tzinfo=tz)
+
+    def run(self, views_body, followers_body=None):
+        followers_body = followers_body or {"data": [{"name": "followers_count", "total_value": {"value": 42}}]}
+        with patch.object(ThreadsProvider, "_request") as request:
+            request.side_effect = [_response(views_body), _response(followers_body)]
+            metrics = ThreadsProvider(CREDENTIALS).get_account_metrics("tok", self.window())
+        return metrics, request
+
+    def test_picks_the_bucket_that_closes_the_requested_day(self):
+        body = {
+            "data": [
+                {
+                    "name": "views",
+                    "values": [
+                        {"value": 8, "end_time": "2026-11-22T08:00:00+0000"},  # the day before
+                        {"value": 134, "end_time": "2026-11-23T08:00:00+0000"},  # the requested day
+                    ],
+                }
+            ]
+        }
+        metrics, request = self.run(body)
+        assert metrics.extra["views"] == 134
+        assert metrics.followers == 42
+        first = request.call_args_list[0]
+        assert first.args[:2] == ("GET", "https://graph.threads.net/v1.0/me/threads_insights")
+        assert first.kwargs["params"]["metric"] == "views"
+        assert request.call_args_list[1].kwargs["params"] == {"metric": "followers_count"}
+
+    def test_a_day_threads_has_not_closed_yet_has_no_views_rather_than_zero(self):
+        body = {"data": [{"name": "views", "values": [{"value": 8, "end_time": "2026-11-22T08:00:00+0000"}]}]}
+        metrics, _ = self.run(body)
+        assert "views" not in metrics.extra and metrics.followers == 42
+
+    def test_a_failed_follower_fetch_is_unknown_not_zero(self):
+        body = {"data": [{"name": "views", "values": [{"value": 5, "end_time": "2026-11-23T08:00:00+0000"}]}]}
+        with patch.object(ThreadsProvider, "_request") as request:
+            request.side_effect = [_response(body), APIError("Threads API error 400", status_code=400)]
+            metrics = ThreadsProvider(CREDENTIALS).get_account_metrics("tok", self.window())
+        assert metrics.followers is None and metrics.extra["views"] == 5
+        assert "followers_count" in metrics.extra["insight_errors"]

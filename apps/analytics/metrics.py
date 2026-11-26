@@ -58,10 +58,12 @@ PLATFORM_METRICS: dict[str, list[str]] = {
     # watch_time is intentionally absent: TikTok has no public per-video
     # Analytics-style endpoint for it yet.
     "tiktok": ["views", "likes", "comments", "shares", "engagement"],
+    # TikTok Business (video.list): lifetime views, reach, likes, comments, shares per video.
+    "tiktok_business": ["views", "reach", "likes", "comments", "shares", "engagement"],
     # Bluesky / AT Protocol post aggregates: like, repost, reply counts (no impressions/views).
     "bluesky": ["likes", "reposts", "replies", "follows"],
     # Threads insights: views, likes, replies, reposts; account follower growth.
-    "threads": ["views", "likes", "replies", "reposts", "follows"],
+    "threads": ["views", "likes", "replies", "reposts", "follows", "followers"],
     # Pinterest pin analytics: impressions, saves, pin clicks, outbound clicks, engagement.
     "pinterest": ["impressions", "saves", "clicks", "outbound", "engagement"],
     # Google Business Profile performance: search/map impressions, clicks, calls, directions.
@@ -79,6 +81,7 @@ PLATFORM_PRIMARY: dict[str, str] = {
     "linkedin_personal": "likes",
     "youtube": "views",
     "tiktok": "views",
+    "tiktok_business": "views",
     "bluesky": "likes",
     "threads": "views",
     "pinterest": "impressions",
@@ -95,6 +98,7 @@ PLATFORM_COLOR: dict[str, str] = {
     "linkedin_company": "#0A66C2",
     "youtube": "#FF0000",
     "tiktok": "#111111",
+    "tiktok_business": "#111111",
     "bluesky": "#0085FF",
     "threads": "#111111",
     "pinterest": "#BD081C",

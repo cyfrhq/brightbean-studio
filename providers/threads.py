@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from urllib.parse import urlencode
 
 from .base import SocialProvider
-from .exceptions import OAuthError, PublishError
+from .exceptions import APIError, OAuthError, PublishError
 from .types import (
+    AccountMetrics,
     AccountProfile,
     AuthType,
     CommentResult,
@@ -509,3 +511,62 @@ class ThreadsProvider(SocialProvider):
                 "raw": data,
             },
         )
+
+    def get_account_metrics(self, access_token: str, date_range: tuple[datetime, datetime]) -> AccountMetrics:
+        """Profile views for the day ``date_range`` ends in, plus the follower total.
+
+        ``views`` comes back as daily buckets, each stamped with the moment its
+        24 hours END. The bucket for the requested day is the first one ending
+        at or after ``date_range[1]`` -- true whatever time zone the caller
+        slices days in. A day whose bucket Threads hasn't closed yet yields no
+        ``views`` at all (never a fabricated 0). ``followers_count`` is a live
+        total, so the sync layer records it for today only.
+        """
+        since, until = date_range
+        resp = self._request(
+            "GET",
+            f"{API_BASE}/me/threads_insights",
+            access_token=access_token,
+            params={"metric": "views", "since": int(since.timestamp()), "until": int(until.timestamp())},
+        )
+        data = resp.json().get("data", [])
+        views = None
+        for item in data:
+            if item.get("name") != "views":
+                continue
+            for bucket in item.get("values", []):
+                ended = _parse_bucket_end(bucket.get("end_time"))
+                if ended is not None and ended >= until:
+                    views = bucket.get("value", 0)
+                    break
+
+        followers = None
+        errors: dict[str, str] = {}
+        try:
+            followers_resp = self._request(
+                "GET",
+                f"{API_BASE}/me/threads_insights",
+                access_token=access_token,
+                params={"metric": "followers_count"},
+            )
+            for item in followers_resp.json().get("data", []):
+                if item.get("name") == "followers_count":
+                    followers = (item.get("total_value") or {}).get("value")
+        except APIError as exc:
+            # A failed fetch is unknown, not zero: leave followers unset.
+            errors["followers_count"] = str(exc)
+
+        extra: dict = {"raw_insights": {"views": data}, "insight_errors": errors}
+        if views is not None:
+            extra["views"] = views
+        return AccountMetrics(followers=followers, extra=extra)
+
+
+def _parse_bucket_end(value) -> datetime | None:
+    """Parse a Threads bucket ``end_time`` such as ``2026-11-22T08:00:00+0000``."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        return None

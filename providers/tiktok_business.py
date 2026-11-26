@@ -19,6 +19,7 @@ from .types import (
     AuthType,
     MediaType,
     OAuthTokens,
+    PostMetrics,
     PostType,
     PublishContent,
     PublishResult,
@@ -29,6 +30,14 @@ from .types import (
 
 API_BASE = "https://business-api.tiktok.com/open_api/v1.3"
 SCOPES = ("user.info.basic", "video.publish")
+# Reading a post's counts needs one more scope than publishing does. It is NOT
+# in SCOPES: a connection without it still works for publishing, and the
+# portal's account-holder URL decides whether it is requested.
+ANALYTICS_SCOPE = "video.list"
+# Every field below is gated by ``video.list`` alone; ``video.insights`` (watch
+# time, retention, audience) is deliberately not requested.
+METRIC_FIELDS = ("item_id", "likes", "comments", "shares", "favorites", "reach", "video_views")
+METRICS_PAGE_SIZE = 20  # the endpoint's maximum
 
 
 def validate_callback(url: str) -> str:
@@ -56,6 +65,9 @@ def validate_callback(url: str) -> str:
 class TikTokBusinessProvider(SocialProvider):
     publish_is_async = True
     needs_local_media = False
+    post_metrics_batch_size = METRICS_PAGE_SIZE
+    # Counts are lifetime totals, so past days can't be reconstructed.
+    account_metrics_supports_date_range = False
 
     @property
     def platform_name(self):
@@ -315,3 +327,46 @@ class TikTokBusinessProvider(SocialProvider):
         # Post ids may lag PUBLISH_COMPLETE by up to three minutes. Unknown
         # statuses likewise cannot be promoted to a public success.
         return PublishStatus(PublishState.PENDING)
+
+    def get_post_metrics_batch(self, access_token, post_ids):
+        """Lifetime counts for up to 20 published posts in one request.
+
+        Needs the ``video.list`` scope. Ids TikTok doesn't return (deleted,
+        private, or a publish handle that never became a post) are absent from
+        the result rather than zero, so history is never flattened.
+        """
+        ids = [str(i) for i in post_ids if str(i).isdigit()][:METRICS_PAGE_SIZE]
+        if not ids:
+            return {}
+        data = self._api(
+            "GET",
+            "/business/video/list/",
+            token=access_token,
+            params={
+                "business_id": self._account_id(access_token),
+                "fields": json.dumps(list(METRIC_FIELDS)),
+                "filters": json.dumps({"video_ids": ids}),
+                "max_count": METRICS_PAGE_SIZE,
+            },
+        )
+        out = {}
+        for video in data.get("videos") or []:
+            item_id = str(video.get("item_id") or "")
+            if item_id not in ids:
+                continue
+            out[item_id] = PostMetrics(
+                reach=_count(video.get("reach")),
+                likes=_count(video.get("likes")),
+                comments=_count(video.get("comments")),
+                shares=_count(video.get("shares")),
+                video_views=_count(video.get("video_views")),
+                extra={"favorites": _count(video.get("favorites"))},
+            )
+        return out
+
+    def get_post_metrics(self, access_token, post_id):
+        return self.get_post_metrics_batch(access_token, [post_id]).get(str(post_id), PostMetrics())
+
+
+def _count(value):
+    return int(value) if isinstance(value, (int, float)) and value >= 0 else 0

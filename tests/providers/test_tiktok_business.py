@@ -1,5 +1,6 @@
 """Business API contract and publishing gates; no network or real posts."""
 
+import json
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -204,3 +205,68 @@ def test_provider_error_never_contains_secrets(provider):
     with patch.object(provider, "_request", side_effect=httpx.ReadTimeout("SECRET")), pytest.raises(APIError) as error:
         provider._api("POST", "/test/")
     assert "SECRET" not in str(error.value)
+
+
+class TestPostMetrics:
+    """Lifetime counts from /business/video/list/ (needs only ``video.list``)."""
+
+    def video(self, item_id, **counts):
+        base = {"likes": 5, "comments": 2, "shares": 1, "favorites": 3, "reach": 90, "video_views": 120}
+        return {"item_id": item_id, **{**base, **counts}}
+
+    def test_one_request_carries_up_to_twenty_posts_with_video_list_fields_only(self, provider):
+        ids = [str(7000000000000000000 + n) for n in range(25)]
+        with patch.object(provider, "_request") as request:
+            request.return_value.json.return_value = {"code": 0, "data": {"videos": [self.video(ids[0])]}}
+            result = provider.get_post_metrics_batch("access", ids)
+        assert provider.post_metrics_batch_size == 20
+        assert request.call_count == 1
+        call = request.call_args
+        assert call.args[:2] == ("GET", f"{API_BASE}/business/video/list/")
+        assert call.kwargs["headers"] == {"Access-Token": "access"}
+        params = call.kwargs["params"]
+        assert params["business_id"] == "owner-1" and params["max_count"] == 20
+        assert json.loads(params["filters"]) == {"video_ids": ids[:20]}
+        fields = json.loads(params["fields"])
+        assert "item_id" in fields
+        # video.insights fields (watch time, audience, retention) are never requested.
+        assert not {"total_time_watched", "audience_countries", "profile_views", "video_view_retention"} & set(fields)
+        assert set(result) == {ids[0]}
+
+    def test_counts_map_onto_the_catalog_fields(self, provider):
+        post_id = "7000000000000000001"
+        with patch.object(provider, "_api", return_value={"videos": [self.video(post_id)]}):
+            metrics = provider.get_post_metrics("access", post_id)
+        assert (metrics.video_views, metrics.reach, metrics.likes, metrics.comments, metrics.shares) == (
+            120,
+            90,
+            5,
+            2,
+            1,
+        )
+        assert metrics.extra == {"favorites": 3}
+
+    def test_posts_tiktok_does_not_return_are_absent_not_zero(self, provider):
+        kept, gone = "7000000000000000001", "7000000000000000002"
+        with patch.object(provider, "_api", return_value={"videos": [self.video(kept), self.video("999")]}):
+            result = provider.get_post_metrics_batch("access", [kept, gone])
+        assert set(result) == {kept}
+        with patch.object(provider, "_api", return_value={"videos": []}):
+            empty = provider.get_post_metrics("access", gone)
+        assert (empty.video_views, empty.likes) == (0, 0)
+
+    def test_publish_handles_and_empty_lists_make_no_request(self, provider):
+        with patch.object(provider, "_request") as request:
+            assert provider.get_post_metrics_batch("access", []) == {}
+            assert provider.get_post_metrics_batch("access", ["v_pub_url~v2.123", "not-an-id"]) == {}
+        request.assert_not_called()
+
+    def test_missing_scope_surfaces_as_a_permission_error_without_secrets(self, provider):
+        response = MagicMock()
+        response.json.return_value = {"code": 40001, "message": "access_token=SECRET"}
+        with patch.object(provider, "_request", return_value=response), pytest.raises(APIError) as error:
+            provider.get_post_metrics_batch("access", ["7000000000000000001"])
+        assert "permission" in str(error.value).lower() and "SECRET" not in str(error.value)
+
+    def test_publishing_scopes_do_not_change(self, provider):
+        assert provider.required_scopes == ["user.info.basic", "video.publish"]
