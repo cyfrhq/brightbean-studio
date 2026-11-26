@@ -31,9 +31,14 @@ when you reach each screen.
 > has not written or approved, does not run ads, and does not read or send private
 > messages.
 
-## 3. Permissions to request (posting only)
+## 3. Permissions to request (posting, plus insights)
 
-Request **only** these. Each extra permission makes review slower and riskier.
+The draft submission in Meta's dashboard (App Review) was trimmed on 2026-11-26 to exactly
+these 10. Meta had pre-filled 22 requests, including ads, messaging, leads, Live Video,
+`pages_manage_metadata`, `business_management` and `read_insights`; those were removed
+because Studio's login flow does not use them and none can be shown in a screencast.
+Removing one only drops it from this review; re-add from the use case's Customize page.
+`public_profile` is Meta's default login permission and needs no screencast.
 
 | Permission | Studio feature that needs it | API calls |
 |---|---|---|
@@ -44,6 +49,8 @@ Request **only** these. Each extra permission makes review slower and riskier.
 | `instagram_content_publish` | Publishes the user's images, reels and carousels | `POST /{ig-user-id}/media`, `/media_publish` |
 | `threads_basic` | Identifies the connected Threads profile | `GET /me?fields=...` |
 | `threads_content_publish` | Publishes the user's text, image and video threads | `POST /{threads-user-id}/threads`, `/threads_publish` |
+| `instagram_manage_insights` | Analytics page: reach, views and interactions for the user's own Instagram posts and account | `GET /{media-id}/insights`, `GET /{ig-user-id}/insights` |
+| `threads_manage_insights` | Analytics page: views, likes, replies and reposts for the user's own Threads posts | `GET /{threads-media-id}/insights` |
 
 ### Paste-ready answers for "How will your app use this permission?"
 
@@ -78,6 +85,15 @@ Request **only** these. Each extra permission makes review slower and riskier.
 **threads_content_publish**
 > The user writes a post, optionally attaches an image or video, and publishes or
 > schedules it to their Threads profile. Studio publishes it through the Threads API.
+
+**instagram_manage_insights**
+> Studio's Analytics page shows the user how their own published Instagram posts and
+> account performed (reach, views, interactions) so they can judge what works. Studio
+> only reads insights for the connected account and never shares them.
+
+**threads_manage_insights**
+> Studio's Analytics page shows the user the views, likes, replies and reposts of their own
+> published Threads posts. Studio only reads insights for the connected profile.
 
 ### Paste-ready answer for "Why do you need this and what happens if you don't get it?"
 
@@ -115,6 +131,12 @@ a short video (reel). Open Instagram and show both posts.
 2. Show the connected Threads card.
 3. Write a post (text, then with an image), publish it, and show it live on threads.com.
 
+### Recording F: analytics (instagram_manage_insights, threads_manage_insights)
+1. Open **Analytics** for the workspace and choose the connected Instagram account.
+2. Show the account figures and the per-post table with reach, views and interactions.
+3. Switch to the Threads account and show its per-post views, likes, replies and reposts.
+4. Say that these are the user's own posts and that Studio only reads them.
+
 ### Recording E: disconnect and data deletion (supports the privacy review)
 1. On the account card click **Disconnect** and confirm. Show the account removed.
 2. Open the data-deletion page and show the steps.
@@ -124,10 +146,11 @@ a short video (reel). Open Instagram and show both posts.
 > DigiCyfr Studio is a private, invite-only workspace used by agencies to manage the
 > social accounts of their own business clients; it is protected by Cloudflare Access.
 > The attached screencasts show every permission being granted and used end to end.
-> Permissions requested are limited to publishing: pages_show_list,
-> pages_read_engagement, pages_manage_posts, instagram_basic,
-> instagram_content_publish, threads_basic and threads_content_publish. The app
-> requests no ads, messaging or comment permissions. Account tokens are stored
+> Permissions requested are limited to publishing and reading the insights of the user's
+> own posts: pages_show_list, pages_read_engagement, pages_manage_posts, instagram_basic,
+> instagram_content_publish, instagram_manage_insights, threads_basic,
+> threads_content_publish and threads_manage_insights. The app requests no ads,
+> messaging, lead or comment permissions. Account tokens are stored
 > encrypted. Users can disconnect an account at any time, and data deletion is
 > described at https://studio-connect.digicyfr.com/data-deletion. If you need to test
 > the app yourself, email info@digicyfr.com and we will give you time-limited access.
@@ -146,13 +169,15 @@ click through the app themselves. Options:
 
 ## 7. Before you submit: checklist
 
-- [ ] **[YOU]** Dashboard, **Become a Tech Provider**: finish Meta's access verification.
+- [x] Dashboard, **Become a Tech Provider**: done 2026-11-26. **[YOU]** answer the extra
+      data-handling questions that App Review now asks.
+- [x] Draft App Review request trimmed to the 10 permissions in section 3.
 - [ ] **[YOU]** Open the **Manage messaging & content on Instagram** use case and finish
       its Unified Login setup (it is not ticked on the dashboard checklist).
 - [ ] Move Facebook and Instagram from the old app to this app (server change, ask first).
 - [ ] Reconnect a test Page, a test Instagram account and a Threads profile through this app.
 - [ ] Publish one real post with each permission within **30 days before** submitting.
-- [ ] **[YOU]** Record A to E.
+- [ ] **[YOU]** Record A to F.
 - [ ] **[YOU]** App Review, **Permissions and features**: request **Advanced access** for
       each permission in section 3, paste the answers above, upload the recordings.
 - [ ] Watch info@digicyfr.com and the dashboard for Meta's questions; answer quickly.
@@ -167,10 +192,12 @@ click through the app themselves. Options:
   against its longer built-in list, so connected accounts may show warnings for comment
   and messaging features that were deliberately not requested. A posting-only mode is a
   small follow-up change.
-- **Facebook Page insights.** `read_insights` is not offered inside Facebook Login for
-  Business configurations, so Facebook analytics may not work through this app. Check
-  before promising Facebook reports. Instagram (`instagram_manage_insights`) and Threads
-  (`threads_manage_insights`) can be added as a second, optional request.
+- **Facebook Page insights are not requested.** `read_insights` is not offered inside
+  Facebook Login for Business configurations, so it was removed from the draft. Do not
+  promise Facebook Page reports through this app until that is solved. Instagram and
+  Threads analytics are covered by the two insights permissions above.
+- **Tech Provider.** The app was identified as a Tech Provider on 2026-11-26 (permanent).
+  Meta now expects extra data-handling answers inside App Review before publishing.
 - **Threads** posting works only for people with a role on the app (testers) until
   `threads_content_publish` is approved, and the profile must be public.
 - **Meta does not guarantee review times.** Expect questions and possibly a resubmission.
