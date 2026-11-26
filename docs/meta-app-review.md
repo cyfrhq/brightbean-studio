@@ -33,14 +33,18 @@ when you reach each screen.
 
 ## 3. Permissions to request (posting, plus insights)
 
-The draft submission in Meta's dashboard (App Review) was trimmed on 2026-11-26 to these 10, and
-`business_management` must be added back by hand (see below), making 11. Meta had pre-filled 22 requests, including ads, messaging, leads, Live Video,
+The draft submission in Meta's dashboard (App Review) was trimmed on 2026-11-26 to these 10 and then
+`business_management` was added back the same day, so it now holds 11. Meta had pre-filled 22 requests, including ads, messaging, leads, Live Video,
 `pages_manage_metadata`, and `read_insights`; those were removed because Studio's login flow does not use them and none can
 be shown in a screencast. `business_management` was removed too, then found to be **required**:
 with a user-token login, Meta's /me/accounts hides Pages owned by a business portfolio unless the
-app also requests it. Re-add it: Use cases > Manage everything on your Page > Permissions and
-features > business_management > Actions > Add to App Review (the action did not register when
-tried through automation).
+app also requests it. It was re-added with: Use cases > Manage everything on your Page > Permissions and
+features > business_management > Actions > Add to App Review, then **Request** in the dialog "Requesting
+advanced access for this privilege will affect other use cases on this app". (That dialog is why
+earlier attempts did nothing: the click only opens it.) Note the side effect: the permission is
+requested in every use case that shares it (7), including the ads, Messenger and Live Video use
+cases, which can invite extra reviewer questions. Consider removing use cases Studio does not use
+before submitting.
 Removing one only drops it from this review; re-add from the use case's Customize page.
 `public_profile` is Meta's default login permission and needs no screencast.
 
@@ -188,7 +192,7 @@ click through the app themselves. Options:
 - [x] Dashboard, **Become a Tech Provider**: done 2026-11-26. **[YOU]** answer the extra
       data-handling questions that App Review now asks.
 - [x] Draft App Review request trimmed to 10 permissions.
-- [ ] **[YOU]** Add `business_management` back to the draft by hand (steps in section 3).
+- [x] `business_management` re-added to the draft (11 permissions); decide whether to remove the unused ads, Messenger and Live Video use cases before submitting.
 - [x] Studio now logs in with Meta app DigiCyfr Studio and login setup 4444380822539055 ("Studio User Token BM", 7 permissions). 9 of 10 Facebook/Instagram accounts were reconnected through it on 2026-11-26; New BD Kebab Radzyń is still on an old token (its owning business is not administered by the app owner).
 - [ ] **[YOU]** Open the **Manage messaging & content on Instagram** use case and finish
       its Unified Login setup (it is not ticked on the dashboard checklist).
