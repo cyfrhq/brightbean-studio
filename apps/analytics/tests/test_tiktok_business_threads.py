@@ -44,14 +44,13 @@ def test_the_noun_for_a_tiktok_business_post_is_video():
     assert services.content_noun(SocialAccount(platform="tiktok_business")) == "video"
 
 
-def test_threads_account_views_and_followers_are_recorded():
-    metrics = AccountMetrics(followers=42, extra={"views": 134})
-    assert _account_metrics_to_dict(metrics, "threads") == {"views": 134.0, "followers": 42.0}
+def test_threads_follower_total_is_recorded():
+    assert _account_metrics_to_dict(AccountMetrics(followers=42), "threads") == {"followers": 42.0}
     assert "followers" in PLATFORM_METRICS["threads"]
 
 
-def test_threads_with_no_closed_day_writes_nothing_for_views():
-    assert _account_metrics_to_dict(AccountMetrics(followers=None, extra={}), "threads") == {}
+def test_an_unknown_threads_follower_total_writes_nothing():
+    assert _account_metrics_to_dict(AccountMetrics(followers=None), "threads") == {}
 
 
 @pytest.fixture
